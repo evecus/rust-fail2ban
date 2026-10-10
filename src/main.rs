@@ -395,10 +395,10 @@ async fn tail_log(
                 Ok(0) => break, // EOF
                 Ok(_) => {
                     let trimmed = line.trim_end().to_string();
-                    if !trimmed.is_empty() {
-                        if tx.send((jail_name.clone(), trimmed)).await.is_err() {
-                            return Ok(()); // receiver dropped
-                        }
+                    if !trimmed.is_empty()
+                        && tx.send((jail_name.clone(), trimmed)).await.is_err()
+                    {
+                        return Ok(()); // receiver dropped
                     }
                 }
                 Err(e) => {
@@ -487,13 +487,9 @@ async fn main() -> Result<()> {
         let tx_clone = tx.clone();
         let name = jail.name.clone();
         tokio::spawn(async move {
-            loop {
-                if let Err(e) = tail_log(path.clone(), tx_clone.clone(), name.clone()).await {
-                    error!("Tailer for {} failed: {}. Retrying in 5s...", name, e);
-                    time::sleep(Duration::from_secs(5)).await;
-                } else {
-                    break;
-                }
+            while let Err(e) = tail_log(path.clone(), tx_clone.clone(), name.clone()).await {
+                error!("Tailer for {} failed: {}. Retrying in 5s...", name, e);
+                time::sleep(Duration::from_secs(5)).await;
             }
         });
         info!("Jail '{}' monitoring {}", jail.name, jail.logpath);
