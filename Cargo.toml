@@ -1,0 +1,29 @@
+[package]
+name = "rust-fail2ban"
+version = "0.1.0"
+edition = "2021"
+authors = ["evecus"]
+description = "A lightweight Fail2Ban-like intrusion prevention tool written in Rust"
+license = "MIT"
+repository = "https://github.com/evecus/rust-fail2ban"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+notify = "6"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+thiserror = "1"
+anyhow = "1"
+dashmap = "5"
+ipnet = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true

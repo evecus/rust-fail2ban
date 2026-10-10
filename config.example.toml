@@ -1,0 +1,38 @@
+# rust-fail2ban configuration example
+
+# Global settings
+[global]
+# How often to check for expired bans (seconds)
+cleanup_interval = 30
+# Backend for banning: "iptables", "nftables", or "dummy" (log only)
+ban_backend = "dummy"
+
+# Jail definitions (similar to fail2ban jails)
+[[jails]]
+name = "sshd"
+enabled = true
+# Log file to monitor
+logpath = "/var/log/auth.log"
+# Regex to match failed attempts. Must capture the IP in the first group.
+failregex = '''(?i)Failed password for .* from (?P<ip>\S+) port \d+'''
+# Maximum failures before ban
+maxretry = 5
+# Time window for counting failures (seconds)
+findtime = 600
+# Ban duration (seconds)
+bantime = 3600
+# Port to ban (used by iptables/nftables)
+port = "22"
+# Protocol
+protocol = "tcp"
+
+[[jails]]
+name = "sshd-invalid"
+enabled = true
+logpath = "/var/log/auth.log"
+failregex = '''(?i)Invalid user .* from (?P<ip>\S+)'''
+maxretry = 3
+findtime = 600
+bantime = 7200
+port = "22"
+protocol = "tcp"
