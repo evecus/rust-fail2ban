@@ -337,20 +337,16 @@ impl RawSsh {
                     }
                 }
             }
-            "passwordauthentication" => {
-                if self.password.is_none() {
-                    self.password = parse_yes_no(v);
-                }
+            "passwordauthentication" if self.password.is_none() => {
+                self.password = parse_yes_no(v);
             }
-            "kbdinteractiveauthentication" | "challengeresponseauthentication" => {
-                if self.kbd.is_none() {
-                    self.kbd = parse_yes_no(v);
-                }
+            "kbdinteractiveauthentication" | "challengeresponseauthentication"
+                if self.kbd.is_none() =>
+            {
+                self.kbd = parse_yes_no(v);
             }
-            "pubkeyauthentication" => {
-                if self.pubkey.is_none() {
-                    self.pubkey = parse_yes_no(v);
-                }
+            "pubkeyauthentication" if self.pubkey.is_none() => {
+                self.pubkey = parse_yes_no(v);
             }
             _ => {}
         }
@@ -439,7 +435,6 @@ fn parse_sshd_file(path: &Path, depth: u32, raw: &mut RawSsh) {
 fn detect_ssh(cfg: &GlobalConfig) -> SshSettings {
     let cfg_exists = Path::new(&cfg.sshd_config).is_file();
     let mut raw = RawSsh::default();
-    let source;
 
     // 1. Ask sshd itself: handles Include, defaults, everything.
     let mut from_sshd = false;
@@ -466,18 +461,18 @@ fn detect_ssh(cfg: &GlobalConfig) -> SshSettings {
         }
     }
 
-    if from_sshd {
-        source = "sshd -T".to_string();
+    let source = if from_sshd {
+        "sshd -T".to_string()
     } else if cfg_exists {
         parse_sshd_file(Path::new(&cfg.sshd_config), 0, &mut raw);
-        source = format!("{} (+Include)", cfg.sshd_config);
+        format!("{} (+Include)", cfg.sshd_config)
     } else {
         warn!(
             "sshd config not found ({}), assuming OpenSSH defaults",
             cfg.sshd_config
         );
-        source = "defaults".to_string();
-    }
+        "defaults".to_string()
+    };
 
     let mut ssh = raw.finish(source);
     if !cfg.ports.is_empty() {
@@ -1051,7 +1046,7 @@ impl AppState {
                     last: Utc::now(),
                 });
                 c.last = Utc::now();
-                let r = match hit.kind {
+                match hit.kind {
                     Kind::Soft => {
                         if c.soft || c.attempts > 0 {
                             false
@@ -1066,8 +1061,7 @@ impl AppState {
                         // "Invalid user" line of this connection
                         !(c.attempts == 1 && c.soft)
                     }
-                };
-                r
+                }
             }
         };
 
