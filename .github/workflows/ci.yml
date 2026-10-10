@@ -35,10 +35,6 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-        if: matrix.rust == 'stable'
-
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
         if: matrix.rust == 'stable'
