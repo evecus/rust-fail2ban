@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::net::IpAddr;
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -133,6 +134,8 @@ struct BanEntry {
     jail: String,
     banned_at: DateTime<Utc>,
     bantime: u64,
+    port: String,
+    protocol: String,
 }
 
 impl BanEntry {
@@ -165,27 +168,37 @@ impl BanBackend for DummyBackend {
     }
 }
 
+/// Pick iptables / ip6tables according to the address family
+fn ipt_bin(ip: &IpAddr) -> &'static str {
+    if ip.is_ipv6() {
+        "ip6tables"
+    } else {
+        "iptables"
+    }
+}
+
 /// iptables backend
 struct IptablesBackend;
 
 impl BanBackend for IptablesBackend {
     fn ban(&self, ip: IpAddr, port: &str, protocol: &str, jail: &str) -> Result<()> {
         let chain = format!("f2b-{}", jail);
-        // Ensure chain exists
-        let _ = Command::new("iptables")
-            .args(["-N", &chain])
-            .output();
-        // Insert jump if not present (best-effort)
-        let _ = Command::new("iptables")
+        let bin = ipt_bin(&ip);
+        // Ensure chain exists (error is ignored if it already exists)
+        let _ = Command::new(bin).args(["-N", &chain]).output();
+        // Insert jump into INPUT only if it is not present yet
+        let jump_exists = Command::new(bin)
             .args(["-C", "INPUT", "-j", &chain])
             .output()
-            .and_then(|_| {
-                Command::new("iptables")
-                    .args(["-I", "INPUT", "-j", &chain])
-                    .output()
-            });
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !jump_exists {
+            let _ = Command::new(bin)
+                .args(["-I", "INPUT", "-j", &chain])
+                .output();
+        }
 
-        let output = Command::new("iptables")
+        let output = Command::new(bin)
             .args([
                 "-I",
                 &chain,
@@ -201,7 +214,7 @@ impl BanBackend for IptablesBackend {
                 "icmp-port-unreachable",
             ])
             .output()
-            .context("failed to run iptables")?;
+            .with_context(|| format!("failed to run {}", bin))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -213,7 +226,8 @@ impl BanBackend for IptablesBackend {
 
     fn unban(&self, ip: IpAddr, port: &str, protocol: &str, jail: &str) -> Result<()> {
         let chain = format!("f2b-{}", jail);
-        let output = Command::new("iptables")
+        let bin = ipt_bin(&ip);
+        let output = Command::new(bin)
             .args([
                 "-D",
                 &chain,
@@ -229,7 +243,7 @@ impl BanBackend for IptablesBackend {
                 "icmp-port-unreachable",
             ])
             .output()
-            .context("failed to run iptables")?;
+            .with_context(|| format!("failed to run {}", bin))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -313,8 +327,13 @@ impl AppState {
             return;
         }
 
-        let mut entry = self.failures.entry(key.clone()).or_insert_with(FailureRecord::new);
-        if entry.add_failure(now, jail.findtime, jail.maxretry) {
+        // NOTE: the RefMut guard must be dropped before touching `failures`
+        // again (remove), otherwise DashMap deadlocks on the same shard.
+        let should_ban = {
+            let mut entry = self.failures.entry(key.clone()).or_insert_with(FailureRecord::new);
+            entry.add_failure(now, jail.findtime, jail.maxretry)
+        };
+        if should_ban {
             // Ban!
             info!(
                 "[{}] Ban {} after {} failures within {}s",
@@ -331,6 +350,8 @@ impl AppState {
                     jail: jail.name.clone(),
                     banned_at: now,
                     bantime: jail.bantime,
+                    port: jail.port.clone(),
+                    protocol: jail.protocol.clone(),
                 },
             );
             // Clear failure history
@@ -348,9 +369,7 @@ impl AppState {
         }
         for key in to_unban {
             if let Some((_, ban)) = self.bans.remove(&key) {
-                // We need jail config for port/protocol — use defaults for simplicity
-                // In a full implementation we'd store them in BanEntry
-                if let Err(e) = self.backend.unban(ban.ip, "22", "tcp", &ban.jail) {
+                if let Err(e) = self.backend.unban(ban.ip, &ban.port, &ban.protocol, &ban.jail) {
                     error!("Failed to unban {}: {}", ban.ip, e);
                 } else {
                     info!("[{}] Unban {} (bantime expired)", ban.jail, ban.ip);
@@ -366,19 +385,20 @@ async fn tail_log(
     tx: mpsc::Sender<(String, String)>, // (jail_name, line)
     jail_name: String,
 ) -> Result<()> {
-    // Open and seek to end
+    // Open and seek to end (only new lines written after startup are processed)
     let mut file = File::open(&path)
         .with_context(|| format!("cannot open log {}", path.display()))?;
-    file.seek(SeekFrom::End(0))?;
+    let mut inode = file.metadata()?.ino();
+    let mut pos = file.seek(SeekFrom::End(0))?;
     let mut reader = BufReader::new(file);
 
-    // Also watch for rotations / new writes with notify
+    // Also watch for new writes with notify
     let (watch_tx, mut watch_rx) = mpsc::channel(32);
     let mut watcher = RecommendedWatcher::new(
         move |res: notify::Result<Event>| {
             if let Ok(event) = res {
                 if matches!(event.kind, EventKind::Modify(_)) {
-                    let _ = watch_tx.blocking_send(());
+                    let _ = watch_tx.try_send(());
                 }
             }
         },
@@ -388,12 +408,18 @@ async fn tail_log(
 
     let mut line = String::new();
     loop {
-        // Read any available lines
+        // 1. Drain everything that is currently readable from the open file.
         loop {
             line.clear();
             match reader.read_line(&mut line) {
                 Ok(0) => break, // EOF
-                Ok(_) => {
+                Ok(n) => {
+                    if !line.ends_with('\n') {
+                        // Partial line (writer not finished yet): rewind and retry later
+                        let _ = reader.seek_relative(-(n as i64));
+                        break;
+                    }
+                    pos += n as u64;
                     let trimmed = line.trim_end().to_string();
                     if !trimmed.is_empty()
                         && tx.send((jail_name.clone(), trimmed)).await.is_err()
@@ -408,26 +434,38 @@ async fn tail_log(
             }
         }
 
-        // Wait for notify or timeout (to handle rotations)
-        tokio::select! {
-            _ = watch_rx.recv() => {},
-            _ = time::sleep(Duration::from_secs(2)) => {
-                // Check if file was rotated (inode changed)
-                if let Ok(meta) = std::fs::metadata(&path) {
-                    // Re-open if needed — simple approach: always re-open on timeout
-                    // For production we'd track inode
-                    let _ = meta;
+        // 2. Detect rotation / truncation. Only then re-open the file, and
+        //    read the new file from the beginning so nothing is lost.
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let rotated = meta.ino() != inode;
+            let truncated = meta.len() < pos;
+            if rotated || truncated {
+                match File::open(&path) {
+                    Ok(new_file) => {
+                        info!(
+                            "[{}] {} {} — reopening from start",
+                            jail_name,
+                            path.display(),
+                            if rotated { "rotated" } else { "truncated" }
+                        );
+                        inode = new_file.metadata().map(|m| m.ino()).unwrap_or(meta.ino());
+                        pos = 0;
+                        reader = BufReader::new(new_file);
+                        // inotify watches the old inode after a rotation; re-arm it
+                        let _ = watcher.unwatch(&path);
+                        let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
+                        continue; // read the new file right away
+                    }
+                    Err(e) => warn!("Cannot reopen {}: {}", path.display(), e),
                 }
             }
         }
 
-        // Re-open on potential rotation
-        if let Ok(new_file) = File::open(&path) {
-            let mut new_reader = BufReader::new(new_file);
-            // If size shrank, it was rotated — start from beginning of new file
-            // Otherwise continue from previous position (best-effort)
-            let _ = new_reader.seek(SeekFrom::End(0));
-            reader = new_reader;
+        // 3. Wait for a notify event, or poll every 2s as a fallback
+        //    (also covers rotation, where the old watch yields no events).
+        tokio::select! {
+            _ = watch_rx.recv() => {},
+            _ = time::sleep(Duration::from_secs(2)) => {},
         }
     }
 }
@@ -500,7 +538,7 @@ async fn main() -> Result<()> {
     let state_cleanup = Arc::clone(&state);
     let interval = config.global.cleanup_interval;
     tokio::spawn(async move {
-        let mut ticker = time::interval(Duration::from_secs(interval));
+        let mut ticker = time::interval(Duration::from_secs(interval.max(1)));
         loop {
             ticker.tick().await;
             state_cleanup.cleanup_expired();
