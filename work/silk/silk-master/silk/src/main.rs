@@ -66,67 +66,29 @@ async fn main() -> Result<()> {
     }
 
     // Resolve every hysteria2/vless server before any eBPF hook is attached,
-    // so the lookup cannot loop through our own datapath. Skipped when no
-    // proxy node is actually used.
+    // so the lookup cannot loop through our own datapath. Node construction
+    // itself happens later (it marks sockets, needing the datapath up).
     let needs = config::needs_proxy(&config);
-    let mut router = outbound::Router::new();
-    if needs {
-        if let Some(n) = &config.nodes.socks5 {
-            let server: SocketAddr = n
-                .server
-                .parse()
-                .with_context(|| format!("parse socks5 server {}", n.server))?;
-            router.add(
-                n.name.clone(),
-                Arc::new(outbound::Outbound::Socks5(Arc::new(socks5::Socks5Client {
-                    server,
-                    username: n.username.clone(),
-                    password: n.password.clone(),
-                }))),
-            );
-        }
-        if let Some(n) = &config.nodes.hysteria2 {
-            let server = tokio::net::lookup_host(n.server.as_str())
+    let hy2_server = match (&config.nodes.hysteria2, needs) {
+        (Some(n), true) => Some(
+            tokio::net::lookup_host(n.server.as_str())
                 .await
                 .with_context(|| format!("resolve hysteria2 server {}", n.server))?
                 .next()
-                .with_context(|| format!("hysteria2 server {}: no address", n.server))?;
-            router.add(
-                n.name.clone(),
-                Arc::new(outbound::Outbound::Hysteria2(Arc::new(
-                    hysteria2::Hysteria2Client::new(
-                        server,
-                        n.password.clone(),
-                        n.sni.clone(),
-                        n.insecure,
-                        &n.up,
-                        &n.down,
-                    )?,
-                ))),
-            );
-        }
-        if let Some(n) = &config.nodes.vless {
-            let server = tokio::net::lookup_host(n.server.as_str())
+                .with_context(|| format!("hysteria2 server {}: no address", n.server))?,
+        ),
+        _ => None,
+    };
+    let vless_server = match (&config.nodes.vless, needs) {
+        (Some(n), true) => Some(
+            tokio::net::lookup_host(n.server.as_str())
                 .await
                 .with_context(|| format!("resolve vless server {}", n.server))?
                 .next()
-                .with_context(|| format!("vless server {}: no address", n.server))?;
-            router.add(
-                n.name.clone(),
-                Arc::new(outbound::Outbound::Vless(Arc::new(vless::VlessClient::new(
-                    server, n,
-                )?))),
-            );
-        }
-        // Default node: the one named by general.default, else the first.
-        let d = config.general.default.trim();
-        if let Some(o) = router.get(d) {
-            router.default = Some(o);
-        }
-        tracing::info!(nodes = ?router.names(), default = %d, "proxy nodes ready");
-    } else {
-        tracing::info!("no proxy verdicts configured; outbound disabled");
-    }
+                .with_context(|| format!("vless server {}: no address", n.server))?,
+        ),
+        _ => None,
+    };
 
     // 1. Proxy namespace + veth bridge.
     ns::create_silkns()?;
@@ -162,10 +124,62 @@ async fn main() -> Result<()> {
     let maps: Arc<Mutex<StaticMaps>> = Arc::new(Mutex::new(dp.take_maps()));
     datapath::install_control_marker(&dp)?;
 
-    // 4. Transparent listeners inside silkns, published to the sockmap.
+    // 4. Proxy nodes (sockets get control-marked; the datapath must be up).
+    let mut router = outbound::Router::new();
+    if needs {
+        if let Some(n) = &config.nodes.socks5 {
+            let server: SocketAddr = n
+                .server
+                .parse()
+                .with_context(|| format!("parse socks5 server {}", n.server))?;
+            router.add(
+                n.name.clone(),
+                Arc::new(outbound::Outbound::Socks5(Arc::new(socks5::Socks5Client {
+                    server,
+                    username: n.username.clone(),
+                    password: n.password.clone(),
+                }))),
+            );
+        }
+        if let Some(n) = &config.nodes.hysteria2 {
+            let server = hy2_server.context("hysteria2 node selected but unresolved")?;
+            router.add(
+                n.name.clone(),
+                Arc::new(outbound::Outbound::Hysteria2(Arc::new(
+                    hysteria2::Hysteria2Client::new(
+                        server,
+                        n.password.clone(),
+                        n.sni.clone(),
+                        n.insecure,
+                        &n.up,
+                        &n.down,
+                    )?,
+                ))),
+            );
+        }
+        if let Some(n) = &config.nodes.vless {
+            let server = vless_server.context("vless node selected but unresolved")?;
+            router.add(
+                n.name.clone(),
+                Arc::new(outbound::Outbound::Vless(Arc::new(vless::VlessClient::new(
+                    server, n,
+                )?))),
+            );
+        }
+        // Default node: the one named by general.default, else the first.
+        let d = config.general.default.trim();
+        if let Some(o) = router.get(d) {
+            router.default = Some(o);
+        }
+        tracing::info!(nodes = ?router.names(), default = %d, "proxy nodes ready");
+    } else {
+        tracing::info!("no proxy verdicts configured; outbound disabled");
+    }
+
+    // 5. Transparent listeners inside silkns, published to the sockmap.
     let listeners = listener::create(&mut dp, true).context("create transparent listeners")?;
 
-    // 5. Engines (outbound only when a proxy node is actually needed).
+    // 6. Engines (outbound only when a proxy node is actually needed).
     let upstream: SocketAddr = config.dns.upstream.parse().context("parse dns upstream")?;
     let remote_upstream: Option<SocketAddr> = match config.dns.remote.as_deref() {
         Some(s) if !s.trim().is_empty() => Some(s.parse().context("parse dns remote")?),
@@ -199,7 +213,7 @@ async fn main() -> Result<()> {
 
     tracing::info!(?lan, ?wan, default = %config.general.default, "datapath up; relaying");
 
-    // 6. Relay loops.
+    // 7. Relay loops.
     let mut tcp_task = tokio::spawn(relay::run_tcp(listeners.tcp4, tcp_ctx));
     let mut udp_task = tokio::spawn(relay::run_udp(
         listeners.udp4,
@@ -208,7 +222,7 @@ async fn main() -> Result<()> {
         maps.clone(),
     ));
 
-    // 7. Run until a signal (or a relay crash), then tear everything down:
+    // 8. Run until a signal (or a relay crash), then tear everything down:
     // netlink-attached TC filters, the veth bridge and the proxy namespace
     // all outlive the process and must be removed explicitly.
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
