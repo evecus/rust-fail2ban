@@ -1,0 +1,12 @@
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/deps/anstyle-8e009a01d9332f4a.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/macros.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/color.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/effect.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/reset.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/style.rs
+
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/deps/libanstyle-8e009a01d9332f4a.rlib: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/macros.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/color.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/effect.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/reset.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/style.rs
+
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/deps/libanstyle-8e009a01d9332f4a.rmeta: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/macros.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/color.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/effect.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/reset.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/style.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/macros.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/color.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/effect.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/reset.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-1.0.14/src/style.rs:

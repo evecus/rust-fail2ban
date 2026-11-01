@@ -1,0 +1,14 @@
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/deps/thiserror-3b74a8c0d71304cb.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs /workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/build/thiserror-73050ed7a23dada8/out/private.rs
+
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/deps/libthiserror-3b74a8c0d71304cb.rlib: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs /workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/build/thiserror-73050ed7a23dada8/out/private.rs
+
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/deps/libthiserror-3b74a8c0d71304cb.rmeta: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs /workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/build/thiserror-73050ed7a23dada8/out/private.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs:
+/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/build/thiserror-73050ed7a23dada8/out/private.rs:
+
+# env-dep:OUT_DIR=/workspace/work/silk/silk-master/target/x86_64-unknown-linux-musl/release/build/thiserror-73050ed7a23dada8/out

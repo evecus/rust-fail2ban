@@ -5,6 +5,14 @@ members = ["silk-ebpf-common", "silk"]
 #   cd silk-ebpf && cargo build --release -Zbuild-std=core --target bpfel-unknown-none
 exclude = ["silk-ebpf"]
 
+[profile.release]
+# Size-optimized: smallest usable proxy binary.
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

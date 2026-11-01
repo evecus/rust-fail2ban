@@ -1,0 +1,17 @@
+/workspace/work/silk/silk-master/target/release/deps/thiserror_impl-6a9f322be85865d5.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/ast.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/attr.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/expand.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/fallback.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/fmt.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/generics.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/prop.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/scan_expr.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/unraw.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/valid.rs
+
+/workspace/work/silk/silk-master/target/release/deps/libthiserror_impl-6a9f322be85865d5.so: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/ast.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/attr.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/expand.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/fallback.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/fmt.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/generics.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/prop.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/scan_expr.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/unraw.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/valid.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/ast.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/attr.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/expand.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/fallback.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/fmt.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/generics.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/prop.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/scan_expr.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/unraw.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-impl-2.0.21/src/valid.rs:
+
+# env-dep:CARGO_PKG_VERSION_PATCH=21
