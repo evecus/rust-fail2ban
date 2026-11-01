@@ -13,8 +13,10 @@ use std::collections::BTreeMap;
 pub struct Config {
     #[serde(default)]
     pub general: General,
+    /// Proxy nodes; `type` selects the protocol, `name` is referenced by
+    /// rules / cgroups / general.default. Several nodes may share a type.
     #[serde(default)]
-    pub nodes: Nodes,
+    pub nodes: Vec<Node>,
     #[serde(default)]
     pub dns: Dns,
     #[serde(default)]
@@ -64,34 +66,28 @@ fn interface_spec(v: Option<&str>) -> Option<&str> {
         .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
 }
 
-#[derive(Debug, Default, Deserialize)]
-pub struct Nodes {
-    #[serde(default)]
-    pub socks5: Option<Socks5Node>,
-    #[serde(default)]
-    pub hysteria2: Option<Hy2Node>,
-    #[serde(default)]
-    pub vless: Option<VlessNode>,
+/// One proxy node. `type` is the protocol tag ("socks5", alias "socks";
+/// "hysteria2"; "vless"); every other field belongs to the payload.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Node {
+    #[serde(alias = "socks")]
+    Socks5(Socks5Node),
+    Hysteria2(Hy2Node),
+    Vless(VlessNode),
 }
 
-impl Nodes {
-    /// (protocol, node name) in declaration order.
-    pub fn entries(&self) -> Vec<(&'static str, &str)> {
-        let mut v = Vec::new();
-        if let Some(n) = &self.socks5 {
-            v.push(("socks5", n.name.as_str()));
+impl Node {
+    pub fn name(&self) -> &str {
+        match self {
+            Node::Socks5(n) => &n.name,
+            Node::Hysteria2(n) => &n.name,
+            Node::Vless(n) => &n.name,
         }
-        if let Some(n) = &self.hysteria2 {
-            v.push(("hysteria2", n.name.as_str()));
-        }
-        if let Some(n) = &self.vless {
-            v.push(("vless", n.name.as_str()));
-        }
-        v
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Socks5Node {
     /// Unique node name referenced by rules / cgroups / general.default.
     pub name: String,
@@ -103,7 +99,7 @@ pub struct Socks5Node {
     pub password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Hy2Node {
     pub name: String,
     /// "host:port" or "ip:port" (hostname resolved via system DNS at startup).
@@ -123,7 +119,7 @@ pub struct Hy2Node {
     pub down: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct VlessNode {
     pub name: String,
     /// "host:port" or "ip:port" (hostname resolved via system DNS at startup).
@@ -366,14 +362,13 @@ pub fn needs_proxy(config: &Config) -> bool {
 
 /// Validate verdict references and node settings up front.
 pub fn validate(config: &Config) -> Result<()> {
-    let names = config.nodes.entries();
+    let node_names: Vec<&str> = config.nodes.iter().map(Node::name).collect();
     let mut seen = std::collections::BTreeSet::new();
-    for (_, n) in &names {
+    for n in &node_names {
         if !seen.insert(*n) {
             anyhow::bail!("duplicate node name: {n:?}");
         }
     }
-    let node_names: Vec<&str> = names.iter().map(|(_, n)| *n).collect();
 
     classify_verdict(&config.general.default, &node_names)
         .context("general.default")?;
@@ -386,33 +381,33 @@ pub fn validate(config: &Config) -> Result<()> {
             .with_context(|| format!("cgroups {path:?}"))?;
     }
 
-    if let Some(n) = &config.nodes.socks5
-        && n.server.trim().is_empty()
-    {
-        anyhow::bail!("nodes.socks5 ({}): server is empty", n.name);
-    }
-    if let Some(n) = &config.nodes.hysteria2
-        && n.server.trim().is_empty()
-    {
-        anyhow::bail!("nodes.hysteria2 ({}): server is empty", n.name);
-    }
-    if let Some(n) = &config.nodes.vless
-        && n.server.trim().is_empty()
-    {
-        anyhow::bail!("nodes.vless ({}): server is empty", n.name);
-    }
-    if let Some(n) = &config.nodes.vless
-        && n.uuid.trim().is_empty()
-    {
-        anyhow::bail!("nodes.vless ({}): uuid is empty", n.name);
-    }
-    if let Some(n) = &config.nodes.vless {
-        let network = n.network.trim().to_lowercase();
-        if !network.is_empty() && network != "tcp" && network != "ws" {
-            anyhow::bail!(
-                "nodes.vless ({}): network must be \"tcp\" or \"ws\" (got {network:?})",
-                n.name
-            );
+    for node in &config.nodes {
+        match node {
+            Node::Socks5(n) => {
+                if n.server.trim().is_empty() {
+                    anyhow::bail!("nodes.socks5 ({}): server is empty", n.name);
+                }
+            }
+            Node::Hysteria2(n) => {
+                if n.server.trim().is_empty() {
+                    anyhow::bail!("nodes.hysteria2 ({}): server is empty", n.name);
+                }
+            }
+            Node::Vless(n) => {
+                if n.server.trim().is_empty() {
+                    anyhow::bail!("nodes.vless ({}): server is empty", n.name);
+                }
+                if n.uuid.trim().is_empty() {
+                    anyhow::bail!("nodes.vless ({}): uuid is empty", n.name);
+                }
+                let network = n.network.trim().to_lowercase();
+                if !network.is_empty() && network != "tcp" && network != "ws" {
+                    anyhow::bail!(
+                        "nodes.vless ({}): network must be \"tcp\" or \"ws\" (got {network:?})",
+                        n.name
+                    );
+                }
+            }
         }
     }
     Ok(())

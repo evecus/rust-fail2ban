@@ -69,26 +69,22 @@ async fn main() -> Result<()> {
     // so the lookup cannot loop through our own datapath. Node construction
     // itself happens later (it marks sockets, needing the datapath up).
     let needs = config::needs_proxy(&config);
-    let hy2_server = match (&config.nodes.hysteria2, needs) {
-        (Some(n), true) => Some(
-            tokio::net::lookup_host(n.server.as_str())
+    let mut resolved: std::collections::HashMap<String, SocketAddr> = Default::default();
+    if needs {
+        for node in &config.nodes {
+            let (name, server) = match node {
+                config::Node::Hysteria2(n) => (&n.name, &n.server),
+                config::Node::Vless(n) => (&n.name, &n.server),
+                _ => continue,
+            };
+            let addr = tokio::net::lookup_host(server.as_str())
                 .await
-                .with_context(|| format!("resolve hysteria2 server {}", n.server))?
+                .with_context(|| format!("resolve {server}"))?
                 .next()
-                .with_context(|| format!("hysteria2 server {}: no address", n.server))?,
-        ),
-        _ => None,
-    };
-    let vless_server = match (&config.nodes.vless, needs) {
-        (Some(n), true) => Some(
-            tokio::net::lookup_host(n.server.as_str())
-                .await
-                .with_context(|| format!("resolve vless server {}", n.server))?
-                .next()
-                .with_context(|| format!("vless server {}: no address", n.server))?,
-        ),
-        _ => None,
-    };
+                .with_context(|| format!("{server}: no address"))?;
+            resolved.insert(name.clone(), addr);
+        }
+    }
 
     // 1. Proxy namespace + veth bridge.
     ns::create_silkns()?;
@@ -127,44 +123,36 @@ async fn main() -> Result<()> {
     // 4. Proxy nodes (sockets get control-marked; the datapath must be up).
     let mut router = outbound::Router::new();
     if needs {
-        if let Some(n) = &config.nodes.socks5 {
-            let server: SocketAddr = n
-                .server
-                .parse()
-                .with_context(|| format!("parse socks5 server {}", n.server))?;
-            router.add(
-                n.name.clone(),
-                Arc::new(outbound::Outbound::Socks5(Arc::new(socks5::Socks5Client {
-                    server,
-                    username: n.username.clone(),
-                    password: n.password.clone(),
-                }))),
-            );
-        }
-        if let Some(n) = &config.nodes.hysteria2 {
-            let server = hy2_server.context("hysteria2 node selected but unresolved")?;
-            router.add(
-                n.name.clone(),
-                Arc::new(outbound::Outbound::Hysteria2(Arc::new(
-                    hysteria2::Hysteria2Client::new(
+        for node in &config.nodes {
+            let outbound = match node {
+                config::Node::Socks5(n) => {
+                    let server: SocketAddr = n
+                        .server
+                        .parse()
+                        .with_context(|| format!("parse socks5 server {}", n.server))?;
+                    outbound::Outbound::Socks5(Arc::new(socks5::Socks5Client {
+                        server,
+                        username: n.username.clone(),
+                        password: n.password.clone(),
+                    }))
+                }
+                config::Node::Hysteria2(n) => {
+                    let server = resolved[&n.name];
+                    outbound::Outbound::Hysteria2(Arc::new(hysteria2::Hysteria2Client::new(
                         server,
                         n.password.clone(),
                         n.sni.clone(),
                         n.insecure,
                         &n.up,
                         &n.down,
-                    )?,
-                ))),
-            );
-        }
-        if let Some(n) = &config.nodes.vless {
-            let server = vless_server.context("vless node selected but unresolved")?;
-            router.add(
-                n.name.clone(),
-                Arc::new(outbound::Outbound::Vless(Arc::new(vless::VlessClient::new(
-                    server, n,
-                )?))),
-            );
+                    )?))
+                }
+                config::Node::Vless(n) => {
+                    let server = resolved[&n.name];
+                    outbound::Outbound::Vless(Arc::new(vless::VlessClient::new(server, n)?))
+                }
+            };
+            router.add(node.name().to_string(), Arc::new(outbound));
         }
         // Default node: the one named by general.default, else the first.
         let d = config.general.default.trim();

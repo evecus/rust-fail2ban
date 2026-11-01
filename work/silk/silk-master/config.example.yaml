@@ -14,15 +14,15 @@ general:
   #tproxy_mark: 0x2027
 
 nodes:
-  # Each node needs a unique `name`; rules / cgroups / general.default
-  # reference it. Omit a protocol section entirely if unused.
-  socks5:
+  # 列表形式：type 选择协议，name 唯一，被 rules / cgroups / general.default
+  # 引用。同一 type 可以配置多个不同 name 的节点；用不到的协议不用写。
+  - type: socks            # 等价于 socks5
     server: 127.0.0.1:1080
     name: socks
     username: ""
     password: ""
 
-  hysteria2:
+  - type: hysteria2
     server: example.com:443
     name: hy2
     password: "xxxx"
@@ -34,7 +34,7 @@ nodes:
     up: 80 Mbps
     down: 300 Mbps
 
-  vless:
+  - type: vless
     name: vless
     server: example.com:443
     uuid: 00000000-0000-0000-0000-000000000000
