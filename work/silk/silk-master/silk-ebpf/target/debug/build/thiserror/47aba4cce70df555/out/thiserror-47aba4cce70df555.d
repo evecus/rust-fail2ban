@@ -1,0 +1,15 @@
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/47aba4cce70df555/out/thiserror-47aba4cce70df555.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/provide.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs /workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/4f6ac12b34befcad/out/private.rs
+
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/47aba4cce70df555/out/libthiserror-47aba4cce70df555.rlib: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/provide.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs /workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/4f6ac12b34befcad/out/private.rs
+
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/47aba4cce70df555/out/libthiserror-47aba4cce70df555.rmeta: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/provide.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs /workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/4f6ac12b34befcad/out/private.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/aserror.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/display.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/provide.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/var.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/thiserror-2.0.21/src/private.rs:
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/4f6ac12b34befcad/out/private.rs:
+
+# env-dep:OUT_DIR=/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/thiserror/4f6ac12b34befcad/out

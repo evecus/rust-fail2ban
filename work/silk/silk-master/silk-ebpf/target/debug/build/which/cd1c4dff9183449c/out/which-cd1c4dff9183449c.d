@@ -1,0 +1,12 @@
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/which/cd1c4dff9183449c/out/which-cd1c4dff9183449c.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/checker.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/error.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/finder.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/helper.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/sys.rs
+
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/which/cd1c4dff9183449c/out/libwhich-cd1c4dff9183449c.rlib: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/checker.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/error.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/finder.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/helper.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/sys.rs
+
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/which/cd1c4dff9183449c/out/libwhich-cd1c4dff9183449c.rmeta: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/checker.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/error.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/finder.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/helper.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/sys.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/checker.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/error.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/finder.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/helper.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/which-8.0.6/src/sys.rs:

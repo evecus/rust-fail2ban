@@ -37,13 +37,13 @@ pub fn decide(pkt: &Pkt) -> u8 {
     if pkt.dst_ip[0..12] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff] {
         let mut v4 = [0u8; 4];
         v4.copy_from_slice(&pkt.dst_ip[12..16]);
-        if let Some(v) = CIDR_V4.get(&Key::new(32, v4)) {
+        if let Some(v) = CIDR_V4.get(Key::new(32, v4)) {
             return *v;
         }
     } else {
         let mut v6 = [0u8; 16];
         v6.copy_from_slice(&pkt.dst_ip);
-        if let Some(v) = CIDR_V6.get(&Key::new(128, v6)) {
+        if let Some(v) = CIDR_V6.get(Key::new(128, v6)) {
             return *v;
         }
     }

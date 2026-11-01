@@ -47,10 +47,7 @@ fn do_capture(ctx: &TcContext, from_wan: u8) -> Verdict {
         }
     }
 
-    let pkt = match parse(ctx) {
-        Ok(p) => p,
-        Err(v) => return Err(v),
-    };
+    let pkt = parse(ctx)?;
 
     let verdict = if force_proxy {
         decide_forced(&pkt)
@@ -88,7 +85,7 @@ fn redirect_to_proxy(ctx: &TcContext, pkt: &Pkt, from_wan: u8) -> Verdict {
         smac: pkt.smac,
         dmac: pkt.dmac,
     };
-    let _ = FLOW_TRACK.insert(&key, &entry, 0);
+    let _ = FLOW_TRACK.insert(key, entry, 0);
 
     // bpf_redirect_peer would bypass the backlog but is egress-only; TC
     // egress capture uses plain bpf_redirect, ingress capture may use either.

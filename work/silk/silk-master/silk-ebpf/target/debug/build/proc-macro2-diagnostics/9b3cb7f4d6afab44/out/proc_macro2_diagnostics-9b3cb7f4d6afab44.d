@@ -1,0 +1,10 @@
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/proc-macro2-diagnostics/9b3cb7f4d6afab44/out/proc_macro2_diagnostics-9b3cb7f4d6afab44.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/ext.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/diagnostic.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/line.rs
+
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/proc-macro2-diagnostics/9b3cb7f4d6afab44/out/libproc_macro2_diagnostics-9b3cb7f4d6afab44.rlib: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/ext.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/diagnostic.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/line.rs
+
+/workspace/work/silk/silk-master/silk-ebpf/target/debug/build/proc-macro2-diagnostics/9b3cb7f4d6afab44/out/libproc_macro2_diagnostics-9b3cb7f4d6afab44.rmeta: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/ext.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/diagnostic.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/line.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/ext.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/diagnostic.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/proc-macro2-diagnostics-0.10.1/src/line.rs:
