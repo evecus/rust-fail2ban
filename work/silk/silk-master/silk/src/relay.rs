@@ -371,7 +371,7 @@ unsafe fn recv_orig_dst_blocking(
                 orig = sockaddr_to_addr(&*data);
                 break;
             }
-            cpos = cpos.add(cmsg_align((*ch).cmsg_len));
+            cpos = cpos.add(cmsg_align((*ch).cmsg_len as _));
         }
         let orig = orig.context("no orig dst ancillary")?;
         Ok((n, client, orig))
