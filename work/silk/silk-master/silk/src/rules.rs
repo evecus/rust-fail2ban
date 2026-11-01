@@ -5,7 +5,7 @@
 //! and the resulting verdict is published into DOMAIN_ROUTE.
 //!
 //! - Inline / `source` domain rules: plain Vec (no FST at startup).
-//! - `binary` (`.ars`): FST sets for large lists.
+//! - `binary` (ARST FST ruleset): FST sets for large lists.
 
 use anyhow::{bail, Context, Result};
 use aya::maps::lpm_trie::Key;

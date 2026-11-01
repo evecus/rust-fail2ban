@@ -1,4 +1,4 @@
-//! Text ruleset parsing (list / sing-box JSON) and `.ars` binary conversion.
+//! Text ruleset parsing (list / sing-box JSON) and binary conversion.
 //!
 //! `kind = "source"` loads text at runtime **without** building an FST: domains
 //! become plain suffix rules (Vec). Large sets should be converted offline to
@@ -260,8 +260,10 @@ pub fn write_ars<W: Write>(compiled: &CompiledRuleSet, w: &mut W) -> Result<()> 
     Ok(())
 }
 
-/// Convert a source file (list or sing-box JSON) to `.ars` binary.
-pub fn convert_source_to_ars(input: &Path, output: &Path) -> Result<()> {
+/// Convert a source file (list or sing-box JSON) to a binary ruleset
+/// (ARST FST; conventionally stored without a file extension — the format
+/// is self-identifying via its magic).
+pub fn convert_source_to_binary(input: &Path, output: &Path) -> Result<()> {
     let raw = std::fs::read(input).with_context(|| format!("read {input:?}"))?;
     let compiled = parse_source_bytes(&raw)?;
     let mut out = std::fs::File::create(output).with_context(|| format!("create {output:?}"))?;

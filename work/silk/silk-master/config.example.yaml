@@ -75,10 +75,11 @@ cgroups:
 #   port    目的端口
 #   domain  域名后缀(标签匹配),"cn" 命中所有 *.cn
 #   source  文本规则集(纯列表或 sing-box JSON),按 verdict 展开
-#   binary  ARST FST 文件(.ars,silk --convert-ruleset 生成)
+#   binary  ARST FST 规则集(无后缀二进制文件,silk --convert-ruleset 生成,
+#           按 ARST 魔数自动识别)
 rules:
   - cidr,10.0.0.0/8,direct
   - domain,cn,direct
   - source,/etc/silk/geosite-google.json,hy2
-  - binary,/etc/silk/cn.ars,vless
+  - binary,/etc/silk/cn-domain,vless
   - port,25,block

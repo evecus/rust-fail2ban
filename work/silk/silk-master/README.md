@@ -110,12 +110,14 @@ otherwise. The same cleanup runs if a relay loop dies.
 
 - `kind = "source"` (alias `list`): plain list **or** sing-box JSON. Parsed into
   ordinary domain/cidr rules — **no FST at startup** (fine for small sets).
-- `kind = "binary"`: ARST (`.ars`) FST ruleset for large domain lists. Convert with:
+- `kind = "binary"`: ARST FST ruleset for large domain lists, stored as an
+  extensionless binary file (self-identifying via its ARST magic). Convert with:
   ```sh
-  silk --convert-ruleset geosite-cn.json cn.ars
+  silk --convert-ruleset geosite-cn.json          # -> geosite-cn
+  silk --convert-ruleset geosite-cn.json -o cn-domain
   # also accepts plain .list text
   ```
-  Then reference `kind = "binary"`, `value = "cn.ars"`.
+  Then reference `kind = "binary"`, `value = "/etc/silk/cn-domain"`.
 
 ## Requirements
 

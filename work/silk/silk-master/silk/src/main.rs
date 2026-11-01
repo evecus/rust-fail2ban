@@ -33,10 +33,14 @@ struct Args {
     #[arg(short, long, default_value = "/etc/silk/config.yaml")]
     config: String,
 
-    /// Convert a source ruleset (list or sing-box JSON) to binary `.ars` and exit.
-    /// Usage: silk --convert-ruleset in.json out.ars
-    #[arg(long, num_args = 2, value_names = ["INPUT", "OUTPUT"])]
-    convert_ruleset: Option<Vec<String>>,
+    /// Convert a source ruleset (list or sing-box JSON) to a binary ruleset
+    /// and exit. Usage: silk --convert-ruleset geosite-cn.json [-o cn-domain]
+    #[arg(long, value_name = "INPUT")]
+    convert_ruleset: Option<String>,
+
+    /// Output path for --convert-ruleset (default: input file stem).
+    #[arg(short, long, value_name = "OUTPUT")]
+    output: Option<String>,
 }
 
 #[tokio::main]
@@ -49,10 +53,21 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    if let Some(pair) = args.convert_ruleset {
-        let input = std::path::Path::new(&pair[0]);
-        let output = std::path::Path::new(&pair[1]);
-        ruleset::convert_source_to_ars(input, output)?;
+    if let Some(input) = args.convert_ruleset {
+        let input = std::path::Path::new(&input);
+        // Default output: alongside the input, stem only
+        // (/etc/silk/geosite-cn.json -> /etc/silk/geosite-cn).
+        let output: std::path::PathBuf = match args.output {
+            Some(o) => o.into(),
+            None => {
+                let stem = input.file_stem().context("input has no file name")?;
+                input
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .join(stem)
+            }
+        };
+        ruleset::convert_source_to_binary(input, &output)?;
         return Ok(());
     }
     let raw =

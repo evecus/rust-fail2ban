@@ -202,7 +202,8 @@ pub struct CgroupRule {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rule {
     /// "cidr" | "domain" | "port" | "source" | "list" | "binary"
-    /// source/list = text (plain list or sing-box JSON); binary = ARST FST (.ars).
+    /// source/list = text (plain list or sing-box JSON); binary = ARST FST
+    /// ruleset (built by --convert-ruleset, any file name).
     pub kind: String,
     /// CIDR, domain suffix, port, or a ruleset file path for source/list/binary.
     pub value: String,
@@ -262,7 +263,7 @@ pub fn cgroup_rules(config: &Config) -> Vec<CgroupRule> {
 ///
 /// - `source` / `list`: plain list **or** sing-box JSON. Domains stay as
 ///   ordinary domain rules (Vec match at runtime — **no FST built at startup**).
-/// - File is ARST / `.ars` → rewritten to `kind = "binary"` (FST).
+/// - File is ARST (or `.ars`) → rewritten to `kind = "binary"` (FST).
 pub fn expand_rules(config: &Config) -> Result<Vec<Rule>> {
     let mut out = Vec::new();
     for rule in &config.rules {
