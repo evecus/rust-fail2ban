@@ -119,7 +119,7 @@ pub fn setup_links(config: &Config) -> Result<()> {
             &format!("net.ipv4.conf.{ifc}.rp_filter=0"),
         ]);
     }
-    let ifc = config.general.lan_interface.as_deref().unwrap_or("all");
+    let ifc = config.general.lan_spec().unwrap_or("all");
     let _ = run_cmd(&["sysctl", "-w", &format!("net.ipv4.conf.{ifc}.rp_filter=0")]);
 
     // Fresh veth pair every start.
@@ -280,7 +280,7 @@ pub fn load_and_attach(
         silk0_ifindex: silk0,
         lan_ifindex: lan.as_ref().map(|(_, i)| *i).unwrap_or(0),
         wan_ifindex: wan.as_ref().map(|(_, i)| *i).unwrap_or(0),
-        default_verdict: crate::rules::Verdict::parse(&config.general.default_verdict)?.to_u8(),
+        default_verdict: crate::rules::Action::parse(&config.general.default).kernel().to_u8(),
         dns_hijack: 1,
         cgroup_rules: u8::from(!config.cgroups.is_empty()),
         _pad: 0,

@@ -16,7 +16,7 @@
 
 mod ws;
 
-use crate::config::Vless as VlessConfig;
+use crate::config::VlessNode as VlessConfig;
 use crate::datapath::mark_global_control;
 use anyhow::{anyhow, bail, Context, Result};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -446,6 +446,7 @@ mod tests {
 
     fn test_cfg(port: u16, network: &str, tls: bool) -> VlessConfig {
         VlessConfig {
+            name: "test".into(),
             server: format!("127.0.0.1:{port}"),
             uuid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".into(),
             network: network.into(),

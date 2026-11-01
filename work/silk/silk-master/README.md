@@ -171,21 +171,22 @@ system LLVM for the chosen feature.
 
 ```sh
 # musl static build
-sudo ./target/aarch64-unknown-linux-musl/release/silk --config config.example.toml
-# or if you built the gnu default:
-# sudo ./target/release/silk --config config.example.toml
+sudo ./silk -c config.example.yaml
+# or:
+# sudo silk -c /etc/silk/config.yaml
 ```
 
-Rules live in the TOML config (see `config.example.toml`): CIDR, port,
-domain-suffix, and ruleset-file (`list`) rules with
-`direct`/`proxy`/`block` verdicts.
+Rules live in the YAML config (see `config.example.yaml`): CIDR, port,
+domain-suffix, and ruleset-file (`source`/`binary`) rules with
+`direct`/`block`/node-name verdicts. `direct` and `block` are resolved
+in the kernel; a node name captures the flow into userspace and forwards
+it through that node.
 
 ## What's intentionally missing (vs honk)
 
 - No geoip/geosite databases, no logic/parameter expressions
-- TCP/UDP via SOCKS5 or Hysteria2 only (no Salamander/Gecko obfuscation)
+- TCP/UDP via SOCKS5, Hysteria2 or VLESS (no Salamander/Gecko obfuscation)
 - Only plain UDP/53 DNS hijack (no DoH/DoT interception)
-- Single outbound, single DNS upstream
 - No fragment reassembly routing (fragments fall through to
   address/port-less surfaces like dae)
 

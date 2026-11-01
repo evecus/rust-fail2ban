@@ -46,8 +46,9 @@ impl CgroupWatcher {
         for r in rules {
             let mode = match r.mode.to_ascii_lowercase().as_str() {
                 "bypass" | "direct" => CGROUP_MODE_BYPASS,
-                "proxy" => CGROUP_MODE_PROXY,
-                other => anyhow::bail!("cgroup {}: unknown mode `{other}`", r.path),
+                // "block" is meaningless here; node names (and anything
+                // else) force public destinations through the proxy.
+                _ => CGROUP_MODE_PROXY,
             };
             let p = Path::new(&r.path);
             let path = if p.starts_with(&root) {

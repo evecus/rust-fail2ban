@@ -12,8 +12,8 @@
 
 use crate::listener::{create_reply_socket, orig_dst_tcp};
 use crate::names::NameCache;
-use crate::outbound::{BoxStream, Outbound, UdpUpstream};
-use crate::rules::{SharedRules, Verdict};
+use crate::outbound::{BoxStream, Router, UdpUpstream};
+use crate::rules::{Action, SharedRules};
 use crate::sniffer;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -30,7 +30,8 @@ type UdpFlows = Mutex<HashMap<(SocketAddr, SocketAddr), Arc<UdpFlow>>>;
 
 /// Shared state for TCP flows.
 pub struct TcpCtx {
-    pub outbound: Option<Arc<Outbound>>,
+    /// Node-name router (general.default resolved).
+    pub router: Arc<Router>,
     pub rules: SharedRules,
     pub names: Arc<NameCache>,
     /// Peek at the first bytes for a TLS SNI / HTTP Host.
@@ -77,28 +78,34 @@ async fn handle_tcp(mut conn: TcpStream, ctx: Arc<TcpCtx>) -> Result<()> {
     }
 
     // 2. A sniffed name re-runs the domain rules: the kernel only saw an IP.
+    let mut action: Option<Action> = None;
     if let Some(d) = &domain {
         let verdict = ctx.rules.lock().await.match_domain(d);
         match verdict {
-            Some(Verdict::Block) => {
+            Some(Action::Block) => {
                 tracing::debug!(%orig, domain = %d, "sniffed domain blocked");
                 return Ok(());
             }
-            Some(Verdict::Direct) => {
+            Some(Action::Direct) => {
                 tracing::debug!(%orig, domain = %d, "sniffed domain routed direct");
                 let up = dial_direct(orig).await?;
                 return relay(conn, up, early).await;
             }
-            _ => {}
+            other => action = other,
         }
     }
 
-    // 3. Proxy path. Prefer the sniffed name; fall back to the name the DNS
-    //    engine remembered for this address (unique names only).
+    // 3. Proxy path: the verdict's node (default node when no rule matched).
+    //    Prefer the sniffed name; fall back to the name the DNS engine
+    //    remembered for this address (unique names only).
+    let action = match action {
+        Some(a) => a,
+        None => ctx.rules.lock().await.default.clone(),
+    };
     let outbound = ctx
-        .outbound
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("tcp proxy flow but no outbound configured"))?;
+        .router
+        .pick(&action)
+        .ok_or_else(|| anyhow::anyhow!("tcp proxy flow but no proxy node configured"))?;
     let dial_name = if ctx.dial_by_domain {
         domain.clone().or_else(|| ctx.names.lookup(orig.ip()))
     } else {
@@ -188,7 +195,7 @@ struct UdpFlow {
 
 pub async fn run_udp(
     sock: std::net::UdpSocket,
-    outbound: Option<Arc<Outbound>>,
+    router: Arc<Router>,
     dns: Arc<crate::dns::DnsEngine>,
     maps: Arc<Mutex<crate::rules::StaticMaps>>,
 ) -> Result<()> {
@@ -248,7 +255,7 @@ pub async fn run_udp(
             if let Some(f) = table.get(&key) {
                 f.clone()
             } else {
-                let flow = match create_udp_flow(&outbound, key).await {
+                let flow = match create_udp_flow(&router, key).await {
                     Ok(f) => Arc::new(f),
                     Err(e) => {
                         tracing::warn!(error = %e, "udp flow setup");
@@ -280,13 +287,14 @@ pub async fn run_udp(
 }
 
 async fn create_udp_flow(
-    outbound: &Option<Arc<Outbound>>,
+    router: &Router,
     key: (SocketAddr, SocketAddr),
 ) -> Result<UdpFlow> {
     let (client, _orig) = key;
-    let outbound = outbound
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("udp proxy flow but no outbound configured"))?;
+    let outbound = router
+        .default
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("udp proxy flow but no proxy node configured"))?;
     let upstream = outbound.udp_session().await?;
     let reply = create_reply_socket(_orig)?;
     Ok(UdpFlow {
@@ -356,7 +364,9 @@ unsafe fn recv_orig_dst_blocking(
         let client = sockaddr_to_addr(&from).context("client addr")?;
         let mut orig = None;
         let mut cpos = cmsg_buf.as_mut_ptr();
-        let end = cmsg_buf.as_mut_ptr().add(msg.msg_controllen as usize);
+        // `as _`: msg_controllen/cmsg_len are size_t on glibc but
+        // socklen_t(u32) on musl — no single named cast satisfies both.
+        let end = cmsg_buf.as_mut_ptr().add(msg.msg_controllen as _);
         while cpos < end {
             let ch = cpos as *const libc::cmsghdr;
             let level = (*ch).cmsg_level;
@@ -369,7 +379,7 @@ unsafe fn recv_orig_dst_blocking(
                 orig = sockaddr_to_addr(&*data);
                 break;
             }
-            cpos = cpos.add(cmsg_align((*ch).cmsg_len as usize));
+            cpos = cpos.add(cmsg_align((*ch).cmsg_len as _));
         }
         let orig = orig.context("no orig dst ancillary")?;
         Ok((n, client, orig))

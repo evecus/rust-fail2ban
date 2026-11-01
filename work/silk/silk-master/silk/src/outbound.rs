@@ -1,6 +1,7 @@
 //! Outbound abstraction: SOCKS5, Hysteria2 or VLESS behind one TCP/UDP dial surface.
 
 use crate::hysteria2::Hysteria2Client;
+use crate::rules::Action;
 use crate::socks5::Socks5Client;
 use crate::vless::VlessClient;
 use anyhow::Result;
@@ -113,5 +114,48 @@ fn push_udp_addr(buf: &mut Vec<u8>, addr: SocketAddr) {
             buf.extend_from_slice(&a.ip().octets());
             buf.extend_from_slice(&a.port().to_be_bytes());
         }
+    }
+}
+
+/// Node-name -> outbound router, shared by the relay and DNS engines.
+pub struct Router {
+    nodes: std::collections::HashMap<String, Arc<Outbound>>,
+    /// Node used when a verdict names no (specific) node: the node named by
+    /// `general.default`, or the first configured node.
+    pub default: Option<Arc<Outbound>>,
+}
+
+impl Router {
+    pub fn new() -> Self {
+        Router {
+            nodes: Default::default(),
+            default: None,
+        }
+    }
+
+    pub fn add(&mut self, name: String, outbound: Arc<Outbound>) {
+        if self.default.is_none() {
+            self.default = Some(outbound.clone());
+        }
+        self.nodes.insert(name, outbound);
+    }
+
+    pub fn get(&self, name: &str) -> Option<Arc<Outbound>> {
+        self.nodes.get(name).cloned()
+    }
+
+    /// Outbound for a userspace verdict: the named node, falling back to the
+    /// default node (unknown names were rejected at config validation).
+    pub fn pick(&self, action: &Action) -> Option<Arc<Outbound>> {
+        match action {
+            Action::Node(n) => self.get(n).or_else(|| self.default.clone()),
+            _ => self.default.clone(),
+        }
+    }
+
+    pub fn names(&self) -> Vec<&str> {
+        let mut v: Vec<&str> = self.nodes.keys().map(String::as_str).collect();
+        v.sort_unstable();
+        v
     }
 }

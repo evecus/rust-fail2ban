@@ -5,7 +5,7 @@
 use crate::listener::create_reply_socket;
 use crate::names::NameCache;
 use crate::outbound::Outbound;
-use crate::rules::{SharedRules, StaticMaps, Verdict};
+use crate::rules::{Action, SharedRules, StaticMaps};
 use anyhow::{anyhow, Result};
 use std::net::SocketAddr;
 use std::os::fd::FromRawFd;
@@ -19,8 +19,9 @@ type DnsCache = std::collections::HashMap<(String, u16), (Vec<u8>, std::time::In
 pub struct DnsEngine {
     /// Domestic resolver, queried directly on a control-plane socket.
     upstream: SocketAddr,
-    /// Overseas resolver, queried through the proxy outbound.
+    /// Overseas resolver, queried through the default proxy node.
     remote: Option<SocketAddr>,
+    /// Default proxy node (general.default, or the first configured node).
     outbound: Option<Arc<Outbound>>,
     rules: SharedRules,
     /// IP -> domain memory for dial-by-domain on proxied TCP flows.
@@ -123,18 +124,18 @@ impl DnsEngine {
         // 2. split DNS: the domain verdict picks the resolver.
         let (rule, default) = {
             let rules = self.rules.lock().await;
-            (rules.match_domain(qname), rules.default)
+            (rules.match_domain(qname), rules.default.clone())
         };
         let buf = match rule {
-            Some(Verdict::Block) => nxdomain(payload),
-            Some(Verdict::Direct) => self.query_direct(payload).await?,
-            Some(Verdict::Proxy) => self.query_proxied_or_direct(payload).await?,
+            Some(Action::Block) => nxdomain(payload),
+            Some(Action::Direct) => self.query_direct(payload).await?,
+            Some(Action::Node(_)) => self.query_proxied_or_direct(payload).await?,
             None => self.query_unmatched(payload, default, maps).await?,
         };
 
         // 3a. remember which name each answer address belongs to, for
         //     dial-by-domain on proxied TCP flows.
-        if rule != Some(Verdict::Block) {
+        if !matches!(rule, Some(Action::Block)) {
             let ttl = answer_min_ttl(&buf).unwrap_or(60).clamp(300, 7200);
             self.remember_names(qname, &buf, ttl);
         }
@@ -142,12 +143,10 @@ impl DnsEngine {
         // 3. publish verdicts only for domains that matched a domain rule;
         //    anything else falls through to CIDR / port / default in the
         //    kernel (otherwise the default verdict would override CIDR rules).
-        if let Some(verdict) = rule
-            && verdict != Verdict::Block
-        {
+        if let Some(action) = rule.filter(|a| !matches!(a, Action::Block)) {
             let mut maps = maps.lock().await;
             for ip in answer_ips(&buf) {
-                if let Err(e) = maps.publish_domain_ip(ip, verdict) {
+                if let Err(e) = maps.publish_domain_ip(ip, action.kernel()) {
                     tracing::warn!(%ip, error = %e, "publish domain route");
                 }
             }
@@ -189,10 +188,10 @@ impl DnsEngine {
     async fn query_unmatched(
         &self,
         payload: &[u8],
-        default: Verdict,
+        default: Action,
         maps: &Arc<Mutex<StaticMaps>>,
     ) -> Result<Vec<u8>> {
-        if self.remote.is_none() || default != Verdict::Proxy {
+        if self.remote.is_none() || !matches!(default, Action::Node(_)) {
             return self.query_direct(payload).await;
         }
         let domestic = match self.query_direct(payload).await {
@@ -206,7 +205,7 @@ impl DnsEngine {
         if ips.is_empty() {
             return Ok(domestic);
         }
-        let direct = Verdict::Direct.to_u8();
+        let direct = Action::Direct.kernel().to_u8();
         let trusted = {
             let m = maps.lock().await;
             ips.iter().any(|ip| m.cidr_verdict(*ip) == Some(direct))

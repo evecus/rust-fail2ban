@@ -1,41 +1,167 @@
-//! Configuration model (TOML). Deliberately a tiny subset of dae syntax:
-//! ordered rule list + one outbound (SOCKS5 or Hysteria2) + one DNS upstream.
+//! Configuration model (YAML). Deliberately a tiny subset of dae syntax:
+//! named nodes (SOCKS5 / Hysteria2 / VLESS) + ordered rule list + split DNS.
+//!
+//! Every verdict ("direct", "block" or a node `name`) is matched top-down;
+//! "direct" and "block" are resolved entirely in the kernel, anything else
+//! captures the flow into userspace and selects the node by name.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct Config {
+    #[serde(default)]
     pub general: General,
-    /// Optional; only required when an outbound of type socks5 is actually used.
     #[serde(default)]
-    pub socks5: Socks5,
-    /// Optional; only required when outbound = "hysteria2".
+    pub nodes: Nodes,
     #[serde(default)]
-    pub hysteria2: Hysteria2,
-    /// Optional; only required when outbound = "vless".
-    #[serde(default)]
-    pub vless: Vless,
     pub dns: Dns,
-    /// Optional; protocol sniffing + dial-by-domain for proxied TCP flows.
     #[serde(default)]
     pub sniff: Sniff,
-    /// Optional per-process policy by cgroup v2 path (host traffic only).
+    /// cgroup path (or bare service name) -> verdict.
     #[serde(default)]
-    pub cgroups: Vec<CgroupRule>,
-    #[serde(default)]
+    pub cgroups: BTreeMap<String, String>,
+    /// One "kind,value,verdict" string per entry, evaluated top-down.
+    #[serde(default, deserialize_with = "rule_lines")]
     pub rules: Vec<Rule>,
 }
 
-/// One per-cgroup policy. `path` is absolute (under /sys/fs/cgroup) or
-/// relative to the cgroup v2 root; the rule covers the whole subtree and the
-/// deepest matching rule wins.
+#[derive(Debug, Default, Deserialize)]
+pub struct General {
+    /// LAN capture interface (gateway mode): "auto", an interface name, or
+    /// empty to disable LAN capture.
+    #[serde(default)]
+    pub lan: Option<String>,
+    /// WAN capture interface (host mode): "auto", a name, or empty to
+    /// disable host-originated capture.
+    #[serde(default)]
+    pub wan: Option<String>,
+    /// Skb mark steering traffic into the proxy namespace.
+    pub tproxy_mark: Option<u32>,
+    /// Verdict when no rule matches: "direct" | "block" | a node name.
+    #[serde(default = "default_verdict")]
+    pub default: String,
+}
+
+fn default_verdict() -> String {
+    "direct".into()
+}
+
+impl General {
+    /// Interface spec for capture: None = "all" (auto / unset / empty).
+    pub fn lan_spec(&self) -> Option<&str> {
+        interface_spec(self.lan.as_deref())
+    }
+
+    pub fn wan_spec(&self) -> Option<&str> {
+        interface_spec(self.wan.as_deref())
+    }
+}
+
+fn interface_spec(v: Option<&str>) -> Option<&str> {
+    v.map(str::trim)
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct Nodes {
+    #[serde(default)]
+    pub socks5: Option<Socks5Node>,
+    #[serde(default)]
+    pub hysteria2: Option<Hy2Node>,
+    #[serde(default)]
+    pub vless: Option<VlessNode>,
+}
+
+impl Nodes {
+    /// (protocol, node name) in declaration order.
+    pub fn entries(&self) -> Vec<(&'static str, &str)> {
+        let mut v = Vec::new();
+        if let Some(n) = &self.socks5 {
+            v.push(("socks5", n.name.as_str()));
+        }
+        if let Some(n) = &self.hysteria2 {
+            v.push(("hysteria2", n.name.as_str()));
+        }
+        if let Some(n) = &self.vless {
+            v.push(("vless", n.name.as_str()));
+        }
+        v
+    }
+}
+
 #[derive(Debug, Deserialize)]
-pub struct CgroupRule {
-    pub path: String,
-    /// "bypass" (alias "direct"): never captured. "proxy": public
-    /// destinations are forced through the proxy.
-    pub mode: String,
+pub struct Socks5Node {
+    /// Unique node name referenced by rules / cgroups / general.default.
+    pub name: String,
+    /// "host:port" (host must be a literal address).
+    pub server: String,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Hy2Node {
+    pub name: String,
+    /// "host:port" or "ip:port" (hostname resolved via system DNS at startup).
+    pub server: String,
+    #[serde(default)]
+    pub password: String,
+    /// TLS SNI; defaults to the server host.
+    #[serde(default)]
+    pub sni: String,
+    #[serde(default)]
+    pub insecure: bool,
+    /// Local upload bandwidth ("80 Mbps"); empty/"auto" = congestion control.
+    #[serde(default)]
+    pub up: String,
+    /// Local download bandwidth; advertised via Hysteria-CC-RX.
+    #[serde(default)]
+    pub down: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VlessNode {
+    pub name: String,
+    /// "host:port" or "ip:port" (hostname resolved via system DNS at startup).
+    pub server: String,
+    /// VLESS user id (UUID).
+    pub uuid: String,
+    /// Transport: "tcp" | "ws".
+    #[serde(default)]
+    pub network: String,
+    /// Wrap the transport in TLS.
+    #[serde(default)]
+    pub tls: bool,
+    /// TLS SNI; defaults to the server host.
+    #[serde(default)]
+    pub sni: String,
+    #[serde(default)]
+    pub insecure: bool,
+    /// WebSocket path (network = "ws"); defaults to "/".
+    #[serde(default)]
+    pub ws_path: String,
+    /// WebSocket Host header; defaults to the SNI.
+    #[serde(default)]
+    pub ws_host: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct Dns {
+    /// Domestic resolver, queried directly (control-plane marked socket).
+    #[serde(default = "default_dns_upstream")]
+    pub upstream: String,
+    /// Overseas resolver, queried through the default proxy node; without it
+    /// every domain is resolved by `upstream`.
+    #[serde(default)]
+    pub remote: Option<String>,
+}
+
+fn default_dns_upstream() -> String {
+    "223.5.5.5:53".into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,103 +189,15 @@ fn yes() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize)]
-pub struct General {
-    /// LAN capture interface (gateway mode), e.g. "br-lan". Optional.
-    pub lan_interface: Option<String>,
-    /// WAN capture interface (host mode), e.g. "eth0". Optional.
-    pub wan_interface: Option<String>,
-    /// Skb mark steering traffic into the proxy namespace.
-    pub tproxy_mark: Option<u32>,
-    /// Verdict when no rule matches: "direct" | "proxy" | "block".
-    #[serde(default = "default_verdict")]
-    pub default_verdict: String,
-    /// Outbound protocol: "socks5" | "hysteria2" | "vless" | "" (none).
-    /// Empty is fine when no rule / default_verdict uses "proxy" and DNS
-    /// does not need a remote (proxied) upstream.
-    #[serde(default = "default_outbound")]
-    pub outbound: String,
-}
-
-fn default_outbound() -> String {
-    String::new()
-}
-
-fn default_verdict() -> String {
-    "proxy".into()
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct Socks5 {
-    /// "host:port"
-    #[serde(default)]
-    pub server: String,
-    #[serde(default)]
-    pub username: String,
-    #[serde(default)]
-    pub password: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct Hysteria2 {
-    /// "host:port" or "ip:port". Resolved via system DNS at startup.
-    pub server: String,
-    /// Auth credential (Hysteria-Auth header).
-    #[serde(default)]
-    pub password: String,
-    /// TLS SNI; defaults to the server host.
-    #[serde(default)]
-    pub sni: String,
-    /// Skip server certificate verification.
-    #[serde(default)]
-    pub insecure: bool,
-    /// Local upload bandwidth ("100 Mbps", "80"); empty/"auto" = congestion control.
-    #[serde(default)]
-    pub up: String,
-    /// Local download bandwidth; advertised to the server via Hysteria-CC-RX.
-    #[serde(default)]
-    pub down: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct Vless {
-    /// VLESS server "host:port" or "ip:port" (hostname resolved via system
-    /// DNS at startup, before the eBPF hooks are attached).
-    #[serde(default)]
-    pub server: String,
-    /// VLESS user id (UUID).
-    #[serde(default)]
-    pub uuid: String,
-    /// Transport: "tcp" | "ws".
-    #[serde(default)]
-    pub network: String,
-    /// Wrap the transport in TLS (server must speak TLS on this port).
-    #[serde(default)]
-    pub tls: bool,
-    /// TLS SNI; defaults to the server host.
-    #[serde(default)]
-    pub sni: String,
-    /// Skip server certificate verification (self-signed servers).
-    #[serde(default)]
-    pub insecure: bool,
-    /// WebSocket path (network = "ws"); defaults to "/".
-    #[serde(default)]
-    pub ws_path: String,
-    /// WebSocket Host header; defaults to the SNI.
-    #[serde(default)]
-    pub ws_host: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Dns {
-    /// Upstream resolver, queried directly (control-plane marked socket).
-    pub upstream: String,
-    /// Optional overseas resolver, queried THROUGH the proxy outbound
-    /// ("8.8.8.8:53"). Used for domains routed to the proxy, and for
-    /// unmatched domains whose domestic answer is not a direct (CN) address.
-    /// Unset = every domain is resolved by `upstream`.
-    #[serde(default)]
-    pub remote_upstream: Option<String>,
+/// One per-cgroup policy (host traffic only). `path` is relative to the
+/// cgroup v2 root (or absolute); the rule covers the whole subtree and the
+/// deepest matching rule wins.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CgroupRule {
+    pub path: String,
+    /// "bypass" (alias "direct") or a node name ("block" is not supported
+    /// here — cgroups only steer between bypass and proxy capture).
+    pub mode: String,
 }
 
 /// One routing rule; the list is evaluated in order and the first match on
@@ -172,8 +210,56 @@ pub struct Rule {
     pub kind: String,
     /// CIDR, domain suffix, port, or a ruleset file path for source/list/binary.
     pub value: String,
-    /// "direct" | "proxy" | "block"
+    /// "direct" | "block" | a node name.
     pub verdict: String,
+}
+
+/// Parse one "kind,value,verdict" rule line.
+pub fn parse_rule_line(line: &str) -> Result<Rule> {
+    let line = line.trim();
+    let (kind, rest) = line
+        .split_once(',')
+        .with_context(|| format!("rule {line:?}: expected kind,value,verdict"))?;
+    let (value, verdict) = rest
+        .rsplit_once(',')
+        .with_context(|| format!("rule {line:?}: expected kind,value,verdict"))?;
+    Ok(Rule {
+        kind: kind.trim().to_ascii_lowercase(),
+        value: value.trim().to_string(),
+        verdict: verdict.trim().to_string(),
+    })
+}
+
+fn rule_lines<'de, D>(d: D) -> Result<Vec<Rule>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let lines: Vec<String> = Deserialize::deserialize(d)?;
+    lines
+        .iter()
+        .map(|l| parse_rule_line(l).map_err(serde::de::Error::custom))
+        .collect()
+}
+
+/// Bare cgroup names are shorthand for system services:
+/// `frps: bypass` == `system.slice/frps.service: bypass`. Anything containing
+/// a slash is used verbatim (e.g. user-1000.slice/session-c1.scope).
+pub fn cgroup_rules(config: &Config) -> Vec<CgroupRule> {
+    config
+        .cgroups
+        .iter()
+        .map(|(k, mode)| {
+            let path = if k.contains('/') {
+                k.clone()
+            } else {
+                format!("system.slice/{k}.service")
+            };
+            CgroupRule {
+                path,
+                mode: mode.clone(),
+            }
+        })
+        .collect()
 }
 
 /// Expand `source` / `list` rules into concrete cidr/domain rules.
@@ -194,8 +280,8 @@ pub fn expand_rules(config: &Config) -> Result<Vec<Rule>> {
         }
 
         let path = std::path::Path::new(&rule.value);
-        let raw = std::fs::read(path)
-            .with_context(|| format!("read ruleset {}", rule.value))?;
+        let raw =
+            std::fs::read(path).with_context(|| format!("read ruleset {}", rule.value))?;
 
         let is_ars = (raw.len() >= 4 && &raw[0..4] == b"ARST")
             || path
@@ -229,70 +315,105 @@ pub fn expand_rules(config: &Config) -> Result<Vec<Rule>> {
     Ok(out)
 }
 
-/// Whether this config ever needs a working proxy outbound.
+/// Classify a verdict string: "direct" ("bypass" alias) | "block" | a
+/// configured node name.
+pub fn classify_verdict(s: &str, node_names: &[&str]) -> Result<()> {
+    let t = s.trim();
+    if t.eq_ignore_ascii_case("direct")
+        || t.eq_ignore_ascii_case("bypass")
+        || t.eq_ignore_ascii_case("block")
+    {
+        return Ok(());
+    }
+    if node_names.contains(&t) {
+        return Ok(());
+    }
+    if node_names.is_empty() {
+        anyhow::bail!("verdict {t:?} is not \"direct\"/\"block\" and no nodes are defined");
+    }
+    anyhow::bail!(
+        "verdict {t:?} does not match any node name (defined: {})",
+        node_names.join(", ")
+    );
+}
+
+/// Whether this config ever needs a working proxy node.
 ///
-/// True if `default_verdict` is proxy, any rule verdict is proxy, or a
-/// `dns.remote_upstream` is set (queried through the outbound). Otherwise
-/// socks5/hysteria2/outbound may be omitted entirely.
+/// True if the default verdict or any rule/cgroup verdict names a node, or a
+/// `dns.remote` is set (queried through the default node). Otherwise the
+/// whole `nodes` section may be omitted.
 pub fn needs_proxy(config: &Config) -> bool {
-    if config.general.default_verdict.eq_ignore_ascii_case("proxy") {
+    let node_used = |s: &str| {
+        !(s.eq_ignore_ascii_case("direct") || s.eq_ignore_ascii_case("block"))
+    };
+    if node_used(config.general.default.trim()) {
         return true;
     }
     if config
         .dns
-        .remote_upstream
+        .remote
         .as_deref()
-        .map(|s| !s.is_empty())
+        .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
     {
         return true;
     }
-    config
-        .rules
-        .iter()
-        .any(|r| r.verdict.eq_ignore_ascii_case("proxy"))
+    if config.rules.iter().any(|r| node_used(&r.verdict)) {
+        return true;
+    }
+    config.cgroups.values().any(|m| node_used(m))
 }
 
-/// Validate outbound settings only when a proxy is actually required.
-pub fn validate_outbound(config: &Config) -> Result<()> {
-    if !needs_proxy(config) {
-        return Ok(());
+/// Validate verdict references and node settings up front.
+pub fn validate(config: &Config) -> Result<()> {
+    let names = config.nodes.entries();
+    let mut seen = std::collections::BTreeSet::new();
+    for (_, n) in &names {
+        if !seen.insert(*n) {
+            anyhow::bail!("duplicate node name: {n:?}");
+        }
     }
-    match config.general.outbound.as_str() {
-        "socks5" => {
-            if config.socks5.server.trim().is_empty() {
-                anyhow::bail!(
-                    "outbound = \"socks5\" but [socks5].server is empty                      (or omit proxy verdicts and set outbound = \"\")"
-                );
-            }
-        }
-        "hysteria2" => {
-            if config.hysteria2.server.trim().is_empty() {
-                anyhow::bail!(
-                    "outbound = \"hysteria2\" but [hysteria2].server is empty"
-                );
-            }
-        }
-        "vless" => {
-            if config.vless.server.trim().is_empty() {
-                anyhow::bail!("outbound = \"vless\" but [vless].server is empty");
-            }
-            if config.vless.uuid.trim().is_empty() {
-                anyhow::bail!("outbound = \"vless\" but [vless].uuid is empty");
-            }
-            let network = config.vless.network.trim().to_lowercase();
-            if !network.is_empty() && network != "tcp" && network != "ws" {
-                anyhow::bail!(
-                    "[vless].network must be \"tcp\" or \"ws\" (got {network:?})"
-                );
-            }
-        }
-        "" => {
+    let node_names: Vec<&str> = names.iter().map(|(_, n)| *n).collect();
+
+    classify_verdict(&config.general.default, &node_names)
+        .context("general.default")?;
+    for r in &config.rules {
+        classify_verdict(&r.verdict, &node_names)
+            .with_context(|| format!("rule {}/{},{}", r.kind, r.value, r.verdict))?;
+    }
+    for (path, mode) in &config.cgroups {
+        classify_verdict(mode, &node_names)
+            .with_context(|| format!("cgroups {path:?}"))?;
+    }
+
+    if let Some(n) = &config.nodes.socks5
+        && n.server.trim().is_empty()
+    {
+        anyhow::bail!("nodes.socks5 ({}): server is empty", n.name);
+    }
+    if let Some(n) = &config.nodes.hysteria2
+        && n.server.trim().is_empty()
+    {
+        anyhow::bail!("nodes.hysteria2 ({}): server is empty", n.name);
+    }
+    if let Some(n) = &config.nodes.vless
+        && n.server.trim().is_empty()
+    {
+        anyhow::bail!("nodes.vless ({}): server is empty", n.name);
+    }
+    if let Some(n) = &config.nodes.vless
+        && n.uuid.trim().is_empty()
+    {
+        anyhow::bail!("nodes.vless ({}): uuid is empty", n.name);
+    }
+    if let Some(n) = &config.nodes.vless {
+        let network = n.network.trim().to_lowercase();
+        if !network.is_empty() && network != "tcp" && network != "ws" {
             anyhow::bail!(
-                "proxy routing is configured (default_verdict/rules/dns.remote_upstream)                  but general.outbound is empty; set outbound = \"socks5\", \"hysteria2\" or \"vless\""
+                "nodes.vless ({}): network must be \"tcp\" or \"ws\" (got {network:?})",
+                n.name
             );
         }
-        other => anyhow::bail!("unknown outbound: {other}"),
     }
     Ok(())
 }

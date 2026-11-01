@@ -24,15 +24,6 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    pub fn parse(s: &str) -> Result<Verdict> {
-        match s {
-            "direct" => Ok(Verdict::Direct),
-            "proxy" => Ok(Verdict::Proxy),
-            "block" => Ok(Verdict::Block),
-            other => anyhow::bail!("unknown verdict: {other}"),
-        }
-    }
-
     pub fn to_u8(self) -> u8 {
         match self {
             Verdict::Direct => VERDICT_DIRECT,
@@ -42,17 +33,45 @@ impl Verdict {
     }
 }
 
+/// A userspace verdict: "direct" / "block" resolve locally, anything else is
+/// a proxy node name (the kernel only ever sees its `Verdict::Proxy`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    Direct,
+    Block,
+    Node(String),
+}
+
+impl Action {
+    /// "bypass" is accepted as an alias of "direct" (cgroup shorthand).
+    pub fn parse(s: &str) -> Action {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "direct" | "bypass" => Action::Direct,
+            "block" => Action::Block,
+            _ => Action::Node(s.trim().to_string()),
+        }
+    }
+
+    pub fn kernel(&self) -> Verdict {
+        match self {
+            Action::Direct => Verdict::Direct,
+            Action::Block => Verdict::Block,
+            Action::Node(_) => Verdict::Proxy,
+        }
+    }
+}
+
 /// One pre-built binary ruleset (ARST membership FSTs) tagged with a verdict.
 struct BinaryDomainSet {
     exact: Option<Set<Arc<[u8]>>>,
     suffix: Option<Set<Arc<[u8]>>>,
-    verdict: Verdict,
+    verdict: Action,
 }
 
 pub struct Rules {
-    pub default: Verdict,
+    pub default: Action,
     /// Inline + source domain-suffix rules (label lists). No FST.
-    domain_rules: Vec<(Vec<String>, Verdict)>,
+    domain_rules: Vec<(Vec<String>, Action)>,
     /// Binary domain sets (exact + suffix), each with a fixed verdict.
     binary_sets: Vec<BinaryDomainSet>,
     pub domain_rule_count: usize,
@@ -65,7 +84,7 @@ impl Rules {
         let mut domain_rule_count = 0usize;
 
         for rule in rules {
-            let verdict = Verdict::parse(&rule.verdict)?;
+            let verdict = Action::parse(&rule.verdict);
             match rule.kind.as_str() {
                 "domain" => {
                     let labels = split_domain(&rule.value);
@@ -101,7 +120,7 @@ impl Rules {
         }
 
         Ok(Rules {
-            default: Verdict::parse(default_verdict)?,
+            default: Action::parse(default_verdict),
             domain_rules,
             binary_sets,
             domain_rule_count,
@@ -109,22 +128,22 @@ impl Rules {
     }
 
     /// Longest-suffix domain match. `None` when no domain rule matches.
-    pub fn match_domain(&self, domain: &str) -> Option<Verdict> {
+    pub fn match_domain(&self, domain: &str) -> Option<Action> {
         let labels = split_domain(domain);
         if labels.is_empty() {
             return None;
         }
 
-        let mut best: Option<(usize, Verdict)> = None;
+        let mut best: Option<(usize, Action)> = None;
 
         for (pattern, verdict) in &self.domain_rules {
             if pattern.is_empty() || pattern.len() > labels.len() {
                 continue;
             }
             if pattern[..] == labels[labels.len() - pattern.len()..]
-                && best.map(|(n, _)| pattern.len() > n).unwrap_or(true)
+                && best.as_ref().map(|(n, _)| pattern.len() > *n).unwrap_or(true)
             {
-                best = Some((pattern.len(), *verdict));
+                best = Some((pattern.len(), verdict.clone()));
             }
         }
 
@@ -134,16 +153,16 @@ impl Rules {
                 let key = exact_fst_key_from_labels(&label_refs);
                 if set.contains(&key) {
                     let depth = labels.len();
-                    if best.map(|(n, _)| depth >= n).unwrap_or(true) {
-                        best = Some((depth, bin.verdict));
+                    if best.as_ref().map(|(n, _)| depth >= *n).unwrap_or(true) {
+                        best = Some((depth, bin.verdict.clone()));
                     }
                 }
             }
             if let Some(set) = &bin.suffix
                 && let Some(depth) = match_suffix_fst_depth(set, &label_refs)
-                && best.map(|(n, _)| depth > n).unwrap_or(true)
+                && best.as_ref().map(|(n, _)| depth > *n).unwrap_or(true)
             {
-                best = Some((depth, bin.verdict));
+                best = Some((depth, bin.verdict.clone()));
             }
         }
 
@@ -263,7 +282,7 @@ pub struct StaticMaps {
 impl StaticMaps {
     pub fn populate_cidr_ports(&mut self, rules: &[crate::config::Rule]) -> Result<()> {
         for rule in rules {
-            let verdict = Verdict::parse(&rule.verdict)?.to_u8();
+            let verdict = Action::parse(&rule.verdict).kernel().to_u8();
             match rule.kind.as_str() {
                 "cidr" => self.insert_cidr(&rule.value, verdict)?,
                 "port" => {
