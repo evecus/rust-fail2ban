@@ -210,10 +210,10 @@ pub fn parse_headers_from_qpack(payload: &[u8]) -> anyhow::Result<Vec<(String, S
                 break;
             };
             i += consumed;
-            if let Some((name, value)) = qpack_static_entry(idx) {
-                if !name.is_empty() {
-                    headers.push((name.to_string(), value.to_string()));
-                }
+            if let Some((name, value)) = qpack_static_entry(idx)
+                && !name.is_empty()
+            {
+                headers.push((name.to_string(), value.to_string()));
             }
         } else if b & 0xc0 == 0x40 {
             // Literal Field With Name Reference: 0b01xx_xxxx

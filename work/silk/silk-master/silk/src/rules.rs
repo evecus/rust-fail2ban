@@ -121,10 +121,10 @@ impl Rules {
             if pattern.is_empty() || pattern.len() > labels.len() {
                 continue;
             }
-            if pattern[..] == labels[labels.len() - pattern.len()..] {
-                if best.map(|(n, _)| pattern.len() > n).unwrap_or(true) {
-                    best = Some((pattern.len(), *verdict));
-                }
+            if pattern[..] == labels[labels.len() - pattern.len()..]
+                && best.map(|(n, _)| pattern.len() > n).unwrap_or(true)
+            {
+                best = Some((pattern.len(), *verdict));
             }
         }
 
@@ -139,12 +139,11 @@ impl Rules {
                     }
                 }
             }
-            if let Some(set) = &bin.suffix {
-                if let Some(depth) = match_suffix_fst_depth(set, &label_refs) {
-                    if best.map(|(n, _)| depth > n).unwrap_or(true) {
-                        best = Some((depth, bin.verdict));
-                    }
-                }
+            if let Some(set) = &bin.suffix
+                && let Some(depth) = match_suffix_fst_depth(set, &label_refs)
+                && best.map(|(n, _)| depth > n).unwrap_or(true)
+            {
+                best = Some((depth, bin.verdict));
             }
         }
 

@@ -771,9 +771,11 @@ pub fn clean_domain(raw: &str) -> Option<String> {
 /// Negative cache: servers that speak first (SSH, SMTP, ...) never send
 /// anything within the sniff window. After three silent attempts to the same
 /// destination, skip sniffing for ten minutes.
-static NEG: OnceLock<Mutex<HashMap<(IpAddr, u16), (u8, Instant)>>> = OnceLock::new();
+type NegCache = HashMap<(IpAddr, u16), (u8, Instant)>;
 
-fn neg() -> &'static Mutex<HashMap<(IpAddr, u16), (u8, Instant)>> {
+static NEG: OnceLock<Mutex<NegCache>> = OnceLock::new();
+
+fn neg() -> &'static Mutex<NegCache> {
     NEG.get_or_init(|| Mutex::new(HashMap::new()))
 }
 

@@ -79,10 +79,10 @@ impl CgroupWatcher {
                     .enumerate()
                     .any(|(j, e)| j != this && e.id == Some(id))
             };
-            if let Some(old_id) = old {
-                if !shared(old_id, i, &self.entries) {
-                    let _ = maps.cgroup_rules.remove(&old_id);
-                }
+            if let Some(old_id) = old
+                && !shared(old_id, i, &self.entries)
+            {
+                let _ = maps.cgroup_rules.remove(&old_id);
             }
             match now {
                 Some(id) => match maps.cgroup_rules.insert(id, mode, 0) {

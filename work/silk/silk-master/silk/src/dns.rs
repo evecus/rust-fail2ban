@@ -13,6 +13,9 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+/// DNS query cache: (qname, qtype) -> (response, expiry instant)
+type DnsCache = std::collections::HashMap<(String, u16), (Vec<u8>, std::time::Instant)>;
+
 pub struct DnsEngine {
     /// Domestic resolver, queried directly on a control-plane socket.
     upstream: SocketAddr,
@@ -23,7 +26,7 @@ pub struct DnsEngine {
     /// IP -> domain memory for dial-by-domain on proxied TCP flows.
     names: Arc<NameCache>,
     /// query cache: (qname, qtype) -> (response, expiry instant)
-    cache: Mutex<std::collections::HashMap<(String, u16), (Vec<u8>, std::time::Instant)>>,
+    cache: Mutex<DnsCache>,
 }
 
 impl DnsEngine {
@@ -105,14 +108,15 @@ impl DnsEngine {
         // 1. cache (a cached answer carries the old transaction id: patch it)
         {
             let cache = self.cache.lock().await;
-            if let Some((resp, expiry)) = cache.get(&(qname.to_string(), qtype)) {
-                if *expiry > std::time::Instant::now() && resp.len() >= 2 {
-                    let mut out = resp.clone();
-                    out[0] = payload[0];
-                    out[1] = payload[1];
-                    self.remember_names(qname, &out, 300);
-                    return Ok(out);
-                }
+            if let Some((resp, expiry)) = cache.get(&(qname.to_string(), qtype))
+                && *expiry > std::time::Instant::now()
+                && resp.len() >= 2
+            {
+                let mut out = resp.clone();
+                out[0] = payload[0];
+                out[1] = payload[1];
+                self.remember_names(qname, &out, 300);
+                return Ok(out);
             }
         }
 
@@ -138,13 +142,13 @@ impl DnsEngine {
         // 3. publish verdicts only for domains that matched a domain rule;
         //    anything else falls through to CIDR / port / default in the
         //    kernel (otherwise the default verdict would override CIDR rules).
-        if let Some(verdict) = rule {
-            if verdict != Verdict::Block {
-                let mut maps = maps.lock().await;
-                for ip in answer_ips(&buf) {
-                    if let Err(e) = maps.publish_domain_ip(ip, verdict) {
-                        tracing::warn!(%ip, error = %e, "publish domain route");
-                    }
+        if let Some(verdict) = rule
+            && verdict != Verdict::Block
+        {
+            let mut maps = maps.lock().await;
+            for ip in answer_ips(&buf) {
+                if let Err(e) = maps.publish_domain_ip(ip, verdict) {
+                    tracing::warn!(%ip, error = %e, "publish domain route");
                 }
             }
         }
@@ -386,7 +390,7 @@ fn answer_min_ttl(msg: &[u8]) -> Option<u64> {
     for _ in 0..ancount {
         let b = *msg.get(pos)?;
         pos += if b & 0xc0 != 0 { 2 } else { 1 + b as usize + 1 };
-        let Some(hdr) = msg.get(pos..pos + 10) else { return None };
+        let hdr = msg.get(pos..pos + 10)?;
         let rdlen = u16::from_be_bytes([hdr[8], hdr[9]]);
         let ttl = u32::from_be_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]);
         min = min.min(ttl as u64);

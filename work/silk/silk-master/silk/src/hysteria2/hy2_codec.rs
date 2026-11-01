@@ -95,13 +95,12 @@ impl Defragger {
         if pkt.frag_count <= pkt.frag_id {
             return None;
         }
-        if self.cnt > 0 {
-            if let Some(t0) = self.started {
-                if t0.elapsed() > FRAG_REASSEMBLY_TIMEOUT {
-                    self.frags.clear();
-                    self.cnt = 0;
-                }
-            }
+        if self.cnt > 0
+            && let Some(t0) = self.started
+            && t0.elapsed() > FRAG_REASSEMBLY_TIMEOUT
+        {
+            self.frags.clear();
+            self.cnt = 0;
         }
         let frag_id = pkt.frag_id as usize;
         if pkt.pkt_id != self.pkt_id || pkt.frag_count as usize != self.frags.len() {

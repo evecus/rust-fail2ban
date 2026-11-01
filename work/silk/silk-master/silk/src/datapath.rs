@@ -3,13 +3,22 @@
 //! interesting parts (programs, maps, listeners) are all in-process.
 
 use crate::config::Config;
-use crate::ns::{run_cmd, run_ip_netns, with_silkns, NETNS_NAME};
+#[cfg(feature = "ebpf")]
+use crate::ns::with_silkns;
+use crate::ns::{run_cmd, run_ip_netns, NETNS_NAME};
 use crate::rules::StaticMaps;
+#[cfg(feature = "ebpf")]
 use aya::maps::lpm_trie::LpmTrie;
-use aya::maps::{HashMap, MapData, SockMap};
+#[cfg(feature = "ebpf")]
+use aya::maps::HashMap;
+use aya::maps::{MapData, SockMap};
+#[cfg(feature = "ebpf")]
 use aya::programs::{SchedClassifier, SkLookup, TcAttachType};
 use anyhow::{Context, Result};
-use silk_ebpf_common::{Param, CONTROL_MARK, TPROXY_MARK};
+#[cfg(feature = "ebpf")]
+use silk_ebpf_common::Param;
+use silk_ebpf_common::{CONTROL_MARK, TPROXY_MARK};
+#[cfg(feature = "ebpf")]
 use std::os::fd::{AsFd, AsRawFd};
 
 #[cfg(feature = "ebpf")]
@@ -110,9 +119,8 @@ pub fn setup_links(config: &Config) -> Result<()> {
             &format!("net.ipv4.conf.{ifc}.rp_filter=0"),
         ]);
     }
-    for ifc in [config.general.lan_interface.as_deref().unwrap_or("all")] {
-        let _ = run_cmd(&["sysctl", "-w", &format!("net.ipv4.conf.{ifc}.rp_filter=0")]);
-    }
+    let ifc = config.general.lan_interface.as_deref().unwrap_or("all");
+    let _ = run_cmd(&["sysctl", "-w", &format!("net.ipv4.conf.{ifc}.rp_filter=0")]);
 
     // Fresh veth pair every start.
     let _ = run_cmd(&["ip", "link", "del", SILK0_HOST]);
@@ -259,18 +267,6 @@ pub fn tproxy_mark(config: &Config) -> u32 {
     config.general.tproxy_mark.unwrap_or(TPROXY_MARK)
 }
 
-#[cfg_attr(not(feature = "ebpf"), allow(dead_code))]
-fn ifindex_in_silkns(name: &str) -> Result<u32> {
-    with_silkns(|| {
-        let c = std::ffi::CString::new(name)?;
-        let idx = unsafe { libc::if_nametoindex(c.as_ptr()) };
-        if idx == 0 {
-            anyhow::bail!("{name} not found in silkns");
-        }
-        Ok(idx)
-    })
-}
-
 /// Load the eBPF object, write globals, attach all hooks, and hand back the
 /// map handles the control plane drives.
 #[cfg(feature = "ebpf")]
@@ -362,11 +358,13 @@ pub fn load_and_attach(
     })
 }
 
+#[cfg_attr(not(feature = "ebpf"), allow(dead_code))]
 fn take_map(ebpf: &mut aya::Ebpf, name: &str) -> Result<aya::maps::Map> {
     ebpf.take_map(name).context(format!("map {name} missing"))
 }
 
 /// Every `Map` variant wraps `MapData`; unwrap it for raw-fd access.
+#[cfg_attr(not(feature = "ebpf"), allow(dead_code))]
 fn map_data(map: aya::maps::Map) -> aya::maps::MapData {
     use aya::maps::Map;
     match map {
@@ -412,11 +410,5 @@ impl Datapath {
     pub fn publish_listener(&mut self, key: u32, fd: std::os::fd::RawFd) -> Result<()> {
         self.listen_sockets.set(key, &fd, 0)?;
         Ok(())
-    }
-
-    /// Mark a control-plane socket so the datapath never loops on it.
-    #[cfg_attr(not(feature = "ebpf"), allow(dead_code))]
-    pub fn mark_control(&self, fd: std::os::fd::RawFd) -> Result<()> {
-        mark_global_control(fd)
     }
 }

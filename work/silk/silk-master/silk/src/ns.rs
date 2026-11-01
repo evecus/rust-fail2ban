@@ -17,6 +17,7 @@ static ENTER_LOCK: Mutex<()> = Mutex::new(());
 pub const NETNS_NAME: &str = "silkns";
 
 /// A fresh fd referring to the proxy namespace (for aya `SkLookup::attach`).
+#[cfg_attr(not(feature = "ebpf"), allow(dead_code))]
 pub fn silkns_fd() -> Result<OwnedFd> {
     let ns = SILKNS.get().context("silkns not created")?;
     Ok(ns.try_clone()?)

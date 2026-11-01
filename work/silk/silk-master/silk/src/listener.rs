@@ -53,10 +53,7 @@ pub fn create(dp: &mut crate::datapath::Datapath, has_v6: bool) -> Result<Listen
         Some(fd) => Some(tokio::net::TcpListener::from_std(from_raw_tcp(fd))?),
         None => None,
     };
-    let udp6 = match udp6_fd {
-        Some(fd) => Some(from_raw_udp(fd)),
-        None => None,
-    };
+    let udp6 = udp6_fd.map(from_raw_udp);
     Ok(Listeners {
         tcp4,
         udp4,

@@ -25,6 +25,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
+/// UDP flow table: (client, original dst) -> flow
+type UdpFlows = Mutex<HashMap<(SocketAddr, SocketAddr), Arc<UdpFlow>>>;
+
 /// Shared state for TCP flows.
 pub struct TcpCtx {
     pub outbound: Option<Arc<Outbound>>,
@@ -218,8 +221,7 @@ pub async fn run_udp(
         }
     })?;
 
-    let flows: Arc<Mutex<HashMap<(SocketAddr, SocketAddr), Arc<UdpFlow>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let flows: Arc<UdpFlows> = Arc::new(Mutex::new(HashMap::new()));
 
     while let Some(ev) = rx.recv().await {
         let UdpEvent {
@@ -354,7 +356,9 @@ unsafe fn recv_orig_dst_blocking(
         let client = sockaddr_to_addr(&from).context("client addr")?;
         let mut orig = None;
         let mut cpos = cmsg_buf.as_mut_ptr();
-        let end = cmsg_buf.as_mut_ptr().add(msg.msg_controllen as usize);
+        // `as _`: msg_controllen is size_t on newer libc, socklen_t on older
+        // ones — a named `as usize` cast trips unnecessary_cast on either.
+        let end = cmsg_buf.as_mut_ptr().add(msg.msg_controllen as _);
         while cpos < end {
             let ch = cpos as *const libc::cmsghdr;
             let level = (*ch).cmsg_level;
@@ -367,7 +371,7 @@ unsafe fn recv_orig_dst_blocking(
                 orig = sockaddr_to_addr(&*data);
                 break;
             }
-            cpos = cpos.add(cmsg_align((*ch).cmsg_len as usize));
+            cpos = cpos.add(cmsg_align((*ch).cmsg_len));
         }
         let orig = orig.context("no orig dst ancillary")?;
         Ok((n, client, orig))
