@@ -1,0 +1,11 @@
+/workspace/work/silk/silk-master/target/debug/deps/anstyle_parse-8dd13501e9524e57.d: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/params.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/mod.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/definitions.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/table.rs
+
+/workspace/work/silk/silk-master/target/debug/deps/libanstyle_parse-8dd13501e9524e57.rlib: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/params.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/mod.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/definitions.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/table.rs
+
+/workspace/work/silk/silk-master/target/debug/deps/libanstyle_parse-8dd13501e9524e57.rmeta: /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/lib.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/params.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/mod.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/definitions.rs /root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/table.rs
+
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/lib.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/params.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/mod.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/definitions.rs:
+/root/.cargo/registry/src/mirrors.aliyun.com-0671735e7cc7f5e7/anstyle-parse-1.0.0/src/state/table.rs:
