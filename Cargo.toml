@@ -11,9 +11,8 @@ repository = "https://github.com/evecus/rust-fail2ban"
 tokio = { version = "1", features = ["full"] }
 notify = "6"
 regex = "1"
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4"
+rusqlite = { version = "0.31", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
