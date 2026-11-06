@@ -2,92 +2,80 @@
 
 A lightweight **Fail2Ban-like** intrusion prevention tool written in pure Rust.
 
-It monitors log files for failed authentication attempts (using configurable regular expressions), tracks failures per IP address, and automatically bans offenders by updating firewall rules (`iptables` / `nftables`) or simply logging the action in dummy mode.
+It monitors sshd logs for failed authentication attempts, tracks failures per IP address, and automatically bans offenders via `nftables` or `iptables` (log-only fallback when neither is available).
+
+**Zero configuration** — there is no config file. Everything is detected automatically at startup.
 
 ## Features
 
 - 🚀 **Async** log tailing with `tokio` + `notify`
-- 📝 Multiple **jails** (like classic fail2ban)
-- ⏱️ Configurable `maxretry`, `findtime`, `bantime`
-- 🔥 Ban backends: `iptables`, `nftables`, or `dummy` (safe for testing)
-- 🧹 Automatic unban when ban time expires
+- 🧠 **Fully automatic**: sshd ports, auth methods, failure patterns, log source and firewall backend are all auto-detected
+- 💾 **Persistent state**: active bans and failure history are stored in a SQLite database, so **bans survive process restarts and reboots** (they are re-applied to the firewall on startup)
+- 🔥 Ban backends: `nftables` (preferred), `iptables`/`ip6tables`, or log-only dummy mode
+- 🧹 Automatic unban when the ban time expires
+- 🛡️ Built-in whitelist (loopback + the client of the current SSH session)
 - 📦 Single static binary, easy to deploy
 
 ## Quick Start
 
 ```bash
-# Clone
 git clone https://github.com/evecus/rust-fail2ban.git
 cd rust-fail2ban
-
-# Build
 cargo build --release
 
-# Copy example config and edit
-cp config.example.toml config.toml
-# Edit log paths, regexes, backend, etc.
-
-# Run (needs appropriate privileges for real ban backends)
-./target/release/rust-fail2ban -c config.toml
+# Run (root is required for real firewall backends)
+sudo ./target/release/rust-fail2ban
 ```
 
-### Dummy mode (recommended for testing)
+That's it. Useful flags:
 
-In `config.toml`:
+| Flag | Description |
+|------|-------------|
+| `-v` / `-vv` | Verbose (debug / trace) logging |
+| `--detect` | Print what would be detected (sshd settings, log source, firewall backend) and exit |
 
-```toml
-[global]
-ban_backend = "dummy"
+## Persistence
+
+All state is written immediately to `/etc/rust-fail2ban/rust-fail2ban.db` (SQLite, WAL mode):
+
+- every **ban** (ip, banned-at, bantime)
+- every **failure record** within the findtime window
+
+On startup the program loads the database, prunes expired entries and **re-applies every unexpired ban to the firewall**, so restarting the daemon — or rebooting the whole machine — does not unban anyone. Whitelisted addresses are never restored.
+
+Default policy: **5 failures within 600 s → 3600 s ban**.
+
+## Detection Details
+
+| What | How |
+|------|-----|
+| sshd ports & auth methods | `sshd -T`, falling back to parsing `/etc/ssh/sshd_config` (+ `Include` files) |
+| Failure patterns | Derived from the enabled auth methods (password / keyboard-interactive / publickey) plus connection-level signals (`Invalid user`, pre-auth disconnect, max-auth-exceeded) |
+| Log source | systemd journal (`journalctl -f -t sshd`) if available, else `/var/log/auth.log` or `/var/log/secure` (rotation/truncation handled) |
+| Firewall | `nftables` (own table `inet rust_fail2ban`), else `iptables` + `ip6tables` (own chain `rust-f2b`), else log-only mode |
+| Whitelist | `127.0.0.0/8`, `::1`, plus the client IP of the current SSH session (so you never lock yourself out) |
+
+## systemd
+
+```ini
+[Unit]
+Description=rust-fail2ban SSH brute-force protection
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/rust-fail2ban
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-No root required — it only prints BAN / UNBAN messages.
-
-## Configuration
-
-See `config.example.toml`. Key sections:
-
-```toml
-[global]
-cleanup_interval = 30          # seconds
-ban_backend = "dummy"          # dummy | iptables | nftables
-
-[[jails]]
-name = "sshd"
-enabled = true
-logpath = "/var/log/auth.log"
-failregex = '''(?i)Failed password for .* from (?P<ip>\S+) port \d+'''
-maxretry = 5
-findtime = 600                 # 10 minutes
-bantime = 3600                 # 1 hour
-port = "22"
-protocol = "tcp"
-```
-
-The regex **must** capture the IP address either as named group `ip` or as the first capture group.
-
-## Ban Backends
-
-| Backend    | Requirements                          | Notes                                      |
-|------------|---------------------------------------|--------------------------------------------|
-| `dummy`    | none                                  | Safe for development / CI                  |
-| `iptables` | root + `iptables` command             | Creates chain `f2b-<jail>`                 |
-| `nftables` | root + `nft` + pre-created set        | Expects set `f2b-<jail>` in `inet filter` |
-
-For `nftables` you need to prepare the set once:
-
-```bash
-nft add table inet filter
-nft add set inet filter f2b-sshd '{ type ipv4_addr; }'
-nft add rule inet filter input ip saddr @f2b-sshd drop
-```
+On graceful shutdown the firewall rules are removed, but the bans stay in the database and are re-applied within milliseconds of the next start.
 
 ## GitHub Actions
 
-The repository includes a CI workflow that:
-
-- Builds on Ubuntu (stable + nightly)
-- Runs `cargo check`, `cargo test`, `cargo clippy`
-- Produces a release binary artifact
+The repository includes a CI workflow that builds on Ubuntu (stable + nightly), runs `cargo check` / `cargo test` / `cargo clippy`, and produces a release binary artifact.
 
 ## License
 
