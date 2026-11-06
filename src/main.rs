@@ -7,29 +7,33 @@
 //!   * where to read logs from (systemd journal or /var/log/auth.log|secure)
 //!   * which firewall to use (nftables or iptables/ip6tables)
 //!
-//! No `[[jails]]` are needed; only optional global tunables remain.
+//! No configuration file is used at all. All state (active bans + recent
+//! failure history) is persisted in a SQLite database at
+//! /etc/rust-fail2ban/rust-fail2ban.db, so bans survive process restarts
+//! and full reboots: at startup every unexpired ban is re-applied to the
+//! firewall automatically.
 
 use anyhow::{anyhow, bail, Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use clap::Parser;
 use dashmap::DashMap;
 use log::{debug, error, info, warn};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
-use serde::Deserialize;
-use std::collections::VecDeque;
+use rusqlite::{params, Connection};
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::net::IpAddr;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time;
 
-// ───────────────────────────── CLI & config ─────────────────────────────
+// ───────────────────────────── CLI & runtime settings ─────────────────────────────
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -38,11 +42,6 @@ use tokio::time;
     about = "Zero-config SSH brute-force protection (fail2ban-like)"
 )]
 struct Args {
-    /// Optional config file. Default: ./config.toml, then
-    /// /etc/rust-fail2ban/config.toml, otherwise built-in defaults.
-    #[arg(short, long)]
-    config: Option<PathBuf>,
-
     /// Increase verbosity (-v, -vv)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -52,85 +51,165 @@ struct Args {
     detect: bool,
 }
 
-/// Global (and only) configuration section. Every field is optional.
-#[derive(Debug, Deserialize, Clone)]
-#[serde(default)]
-struct GlobalConfig {
-    /// How often to check for expired bans (seconds)
-    cleanup_interval: u64,
-    /// auto | nftables | iptables | dummy
-    ban_backend: String,
-    /// auto | journal | file
-    log_source: String,
-    /// Log file to tail (implies file mode when log_source = "auto")
-    logpath: Option<String>,
-    /// sshd configuration file used for detection
-    sshd_config: String,
-    /// Override detected SSH ports (empty = auto)
-    ports: Vec<u16>,
-    /// Failures within `findtime` that trigger a ban
-    maxretry: u32,
-    /// Window for counting failures (seconds)
-    findtime: u64,
-    /// Ban duration (seconds)
-    bantime: u64,
-    /// Never ban these addresses / CIDRs
-    ignoreip: Vec<String>,
-    /// Also match scanner-type noise (no banner, failed negotiation...).
-    /// Off by default: load balancer health checks can trigger these.
-    aggressive: bool,
-}
+/// Directory holding the persistent database
+const DB_DIR: &str = "/etc/rust-fail2ban";
+/// SQLite database: bans + failure history survive restarts and reboots
+const DB_PATH: &str = "/etc/rust-fail2ban/rust-fail2ban.db";
+/// How often to check for expired bans (seconds)
+const CLEANUP_INTERVAL: u64 = 30;
+/// sshd configuration file used for detection
+const SSHD_CONFIG: &str = "/etc/ssh/sshd_config";
+/// Failures within FINDTIME that trigger a ban
+const MAXRETRY: u32 = 5;
+/// Window for counting failures (seconds)
+const FINDTIME: u64 = 600;
+/// Ban duration (seconds)
+const BANTIME: u64 = 3600;
+/// Never ban these addresses / CIDRs
+const IGNOREIP: &[&str] = &["127.0.0.0/8", "::1"];
 
-impl Default for GlobalConfig {
-    fn default() -> Self {
-        Self {
-            cleanup_interval: 30,
-            ban_backend: "auto".into(),
-            log_source: "auto".into(),
-            logpath: None,
-            sshd_config: "/etc/ssh/sshd_config".into(),
-            ports: Vec::new(),
-            maxretry: 5,
-            findtime: 600,
-            bantime: 3600,
-            ignoreip: vec!["127.0.0.0/8".into(), "::1".into()],
-            aggressive: false,
+// ───────────────────────────── database (persistence) ─────────────────────────────
+
+/// Bans loaded from the database: (ip, banned_at, bantime)
+type LoadedBans = Vec<(IpAddr, i64, i64)>;
+/// Failure history loaded from the database
+type LoadedFailures = HashMap<IpAddr, VecDeque<i64>>;
+
+/// SQLite persistence. Every ban and failure record is written to disk
+/// immediately, so nothing is lost on process restart or reboot.
+/// Expired rows are pruned on a regular basis.
+struct Db(Mutex<Connection>);
+
+impl Db {
+    /// Open (and create) the on-disk database.
+    fn open() -> Result<Self> {
+        std::fs::create_dir_all(DB_DIR)
+            .with_context(|| format!("cannot create directory {}", DB_DIR))?;
+        let conn =
+            Connection::open(DB_PATH).with_context(|| format!("cannot open {}", DB_PATH))?;
+        Self::setup(&conn)?;
+        Ok(Self(Mutex::new(conn)))
+    }
+
+    /// In-memory database (used by tests).
+    #[cfg(test)]
+    fn open_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory().context("cannot open in-memory database")?;
+        Self::setup(&conn)?;
+        Ok(Self(Mutex::new(conn)))
+    }
+
+    fn setup(conn: &Connection) -> Result<()> {
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             CREATE TABLE IF NOT EXISTS bans (
+                 ip        TEXT PRIMARY KEY,
+                 banned_at INTEGER NOT NULL, -- unix seconds
+                 bantime   INTEGER NOT NULL  -- seconds
+             );
+             CREATE TABLE IF NOT EXISTS failures (
+                 ip TEXT    NOT NULL,
+                 ts INTEGER NOT NULL,       -- unix seconds,
+                 UNIQUE (ip, ts)
+             );
+             CREATE INDEX IF NOT EXISTS idx_failures_ip ON failures(ip, ts);
+             CREATE INDEX IF NOT EXISTS idx_failures_ts ON failures(ts);",
+        )
+        .context("cannot initialise database schema")?;
+        Ok(())
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn save_ban(&self, ip: IpAddr, banned_at: i64, bantime: i64) {
+        let ip = ip.to_string();
+        let _ = self.lock().execute(
+            "INSERT INTO bans(ip, banned_at, bantime) VALUES (?1, ?2, ?3)
+             ON CONFLICT(ip) DO UPDATE SET banned_at = ?2, bantime = ?3",
+            params![ip, banned_at, bantime],
+        );
+    }
+
+    fn delete_ban(&self, ip: IpAddr) {
+        let _ = self
+            .lock()
+            .execute("DELETE FROM bans WHERE ip = ?1", params![ip.to_string()]);
+    }
+
+    fn save_failure(&self, ip: IpAddr, ts: i64) {
+        let _ = self.lock().execute(
+            "INSERT OR IGNORE INTO failures(ip, ts) VALUES (?1, ?2)",
+            params![ip.to_string(), ts],
+        );
+    }
+
+    fn delete_failures(&self, ip: IpAddr) {
+        let _ = self
+            .lock()
+            .execute("DELETE FROM failures WHERE ip = ?1", params![ip.to_string()]);
+    }
+
+    /// Remove failure records that fell out of the findtime window.
+    fn prune_failures(&self, cutoff: i64) {
+        let _ = self
+            .lock()
+            .execute("DELETE FROM failures WHERE ts < ?1", params![cutoff]);
+    }
+
+    /// Remove expired bans (bantime already over).
+    fn prune_bans(&self, now: i64) {
+        let _ = self.lock().execute(
+            "DELETE FROM bans WHERE banned_at + bantime <= ?1",
+            params![now],
+        );
+    }
+
+    /// Load persisted state: all bans (expired ones are pruned first by the
+    /// caller via `prune_bans`) and every failure within the findtime window.
+    fn load_state(&self, now: i64, findtime: i64) -> (LoadedBans, LoadedFailures) {
+        let conn = self.lock();
+
+        let mut bans = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT ip, banned_at, bantime FROM bans WHERE banned_at + bantime > ?1",
+        ) {
+            let rows = stmt.query_map(params![now], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            });
+            if let Ok(rows) = rows {
+                for (ip, banned_at, bantime) in rows.flatten() {
+                    if let Ok(ip) = ip.parse() {
+                        bans.push((ip, banned_at, bantime));
+                    }
+                }
+            }
         }
-    }
-}
 
-#[derive(Debug, Deserialize, Default)]
-struct ConfigFile {
-    #[serde(default)]
-    global: GlobalConfig,
-}
+        let mut failures: HashMap<IpAddr, VecDeque<i64>> = HashMap::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT ip, ts FROM failures WHERE ts > ?1 ORDER BY ts",
+        ) {
+            let rows = stmt.query_map(params![now - findtime], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            });
+            if let Ok(rows) = rows {
+                for (ip, ts) in rows.flatten() {
+                    if let Ok(ip) = ip.parse() {
+                        failures.entry(ip).or_default().push_back(ts);
+                    }
+                }
+            }
+        }
 
-fn load_config(explicit: Option<&Path>) -> Result<GlobalConfig> {
-    let path: Option<PathBuf> = match explicit {
-        Some(p) => Some(p.to_path_buf()),
-        None => ["config.toml", "/etc/rust-fail2ban/config.toml"]
-            .iter()
-            .map(PathBuf::from)
-            .find(|p| p.is_file()),
-    };
-    let Some(path) = path else {
-        info!("no config file found, using built-in defaults");
-        return Ok(GlobalConfig::default());
-    };
-
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("cannot read config {}", path.display()))?;
-    let raw: toml::Value = toml::from_str(&text).context("invalid TOML config")?;
-    if raw.get("jails").is_some() {
-        warn!("[[jails]] is no longer used and will be ignored (everything is auto-detected)");
+        (bans, failures)
     }
-    let file: ConfigFile = raw.try_into().context("invalid config values")?;
-    let cfg = file.global;
-    if cfg.maxretry == 0 || cfg.findtime == 0 || cfg.bantime == 0 {
-        bail!("maxretry, findtime and bantime must be greater than 0");
-    }
-    info!("loaded config from {}", path.display());
-    Ok(cfg)
 }
 
 // ───────────────────────────── helpers ─────────────────────────────
@@ -273,12 +352,12 @@ impl Cidr {
     }
 }
 
-fn build_whitelist(cfg: &GlobalConfig) -> Vec<Cidr> {
+fn build_whitelist() -> Vec<Cidr> {
     let mut list = Vec::new();
-    for s in &cfg.ignoreip {
+    for s in IGNOREIP {
         match Cidr::parse(s) {
             Some(c) => list.push(c),
-            None => warn!("ignoring invalid ignoreip entry: {}", s),
+            None => warn!("ignoring invalid built-in ignoreip entry: {}", s),
         }
     }
     // If we are started from an SSH session, never ban that client.
@@ -432,8 +511,8 @@ fn parse_sshd_file(path: &Path, depth: u32, raw: &mut RawSsh) {
     }
 }
 
-fn detect_ssh(cfg: &GlobalConfig) -> SshSettings {
-    let cfg_exists = Path::new(&cfg.sshd_config).is_file();
+fn detect_ssh() -> SshSettings {
+    let cfg_exists = Path::new(SSHD_CONFIG).is_file();
     let mut raw = RawSsh::default();
 
     // 1. Ask sshd itself: handles Include, defaults, everything.
@@ -442,7 +521,7 @@ fn detect_ssh(cfg: &GlobalConfig) -> SshSettings {
         let mut cmd = Command::new(&sshd);
         cmd.arg("-T");
         if cfg_exists {
-            cmd.arg("-f").arg(&cfg.sshd_config);
+            cmd.arg("-f").arg(SSHD_CONFIG);
         }
         match cmd.output() {
             Ok(out) if out.status.success() => {
@@ -464,22 +543,17 @@ fn detect_ssh(cfg: &GlobalConfig) -> SshSettings {
     let source = if from_sshd {
         "sshd -T".to_string()
     } else if cfg_exists {
-        parse_sshd_file(Path::new(&cfg.sshd_config), 0, &mut raw);
-        format!("{} (+Include)", cfg.sshd_config)
+        parse_sshd_file(Path::new(SSHD_CONFIG), 0, &mut raw);
+        format!("{} (+Include)", SSHD_CONFIG)
     } else {
         warn!(
             "sshd config not found ({}), assuming OpenSSH defaults",
-            cfg.sshd_config
+            SSHD_CONFIG
         );
         "defaults".to_string()
     };
 
-    let mut ssh = raw.finish(source);
-    if !cfg.ports.is_empty() {
-        ssh.ports = cfg.ports.clone();
-        ssh.source.push_str(" + ports override");
-    }
-    ssh
+    raw.finish(source)
 }
 
 // ───────────────────────────── log source ─────────────────────────────
@@ -510,38 +584,16 @@ fn detect_log_file() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-fn detect_log_source(cfg: &GlobalConfig) -> Result<LogSource> {
-    match cfg.log_source.as_str() {
-        "journal" => {
-            if find_bin("journalctl").is_none() {
-                bail!("log_source = \"journal\" but journalctl was not found");
-            }
-            Ok(LogSource::Journal)
-        }
-        "file" => {
-            if let Some(p) = &cfg.logpath {
-                Ok(LogSource::File(PathBuf::from(p)))
-            } else if let Some(p) = detect_log_file() {
-                Ok(LogSource::File(p))
-            } else {
-                bail!("log_source = \"file\" but no log file found; set `logpath`")
-            }
-        }
-        "auto" => {
-            if let Some(p) = &cfg.logpath {
-                Ok(LogSource::File(PathBuf::from(p)))
-            } else if journal_available() {
-                Ok(LogSource::Journal)
-            } else if let Some(p) = detect_log_file() {
-                Ok(LogSource::File(p))
-            } else {
-                bail!(
-                    "no log source found (no systemd journal, no /var/log/auth.log or \
-                     /var/log/secure). Install rsyslog or set `logpath`."
-                )
-            }
-        }
-        other => bail!("unknown log_source '{}' (auto | journal | file)", other),
+fn detect_log_source() -> Result<LogSource> {
+    if journal_available() {
+        Ok(LogSource::Journal)
+    } else if let Some(p) = detect_log_file() {
+        Ok(LogSource::File(p))
+    } else {
+        bail!(
+            "no log source found (no systemd journal, no /var/log/auth.log or \
+             /var/log/secure). Install rsyslog or run journald."
+        )
     }
 }
 
@@ -939,33 +991,19 @@ fn try_iptables(ports: &[u16]) -> Option<IptablesBackend> {
     })
 }
 
-/// Choose the ban backend. `auto` prefers nftables, then iptables.
-fn pick_backend(cfg: &GlobalConfig, ports: &[u16]) -> Result<Arc<dyn BanBackend>> {
-    match cfg.ban_backend.as_str() {
-        "auto" => {
-            if let Some(b) = try_nft(ports) {
-                Ok(Arc::new(b))
-            } else if let Some(b) = try_iptables(ports) {
-                Ok(Arc::new(b))
-            } else {
-                warn!(
-                    "no usable firewall found (need root and nft or iptables) — \
-                     falling back to LOG-ONLY mode, nothing will be blocked!"
-                );
-                Ok(Arc::new(DummyBackend))
-            }
-        }
-        "nftables" | "nft" => try_nft(ports)
-            .map(|b| Arc::new(b) as Arc<dyn BanBackend>)
-            .ok_or_else(|| anyhow!("nft not found or not usable (are you root?)")),
-        "iptables" => try_iptables(ports)
-            .map(|b| Arc::new(b) as Arc<dyn BanBackend>)
-            .ok_or_else(|| anyhow!("iptables not found or not usable (are you root?)")),
-        "dummy" | "none" => Ok(Arc::new(DummyBackend)),
-        other => bail!(
-            "unknown ban_backend '{}' (auto | nftables | iptables | dummy)",
-            other
-        ),
+/// Choose the ban backend automatically: nftables, then iptables,
+/// otherwise log-only dummy mode.
+fn pick_backend(ports: &[u16]) -> Result<Arc<dyn BanBackend>> {
+    if let Some(b) = try_nft(ports) {
+        Ok(Arc::new(b))
+    } else if let Some(b) = try_iptables(ports) {
+        Ok(Arc::new(b))
+    } else {
+        warn!(
+            "no usable firewall found (need root and nft or iptables) — \
+             falling back to LOG-ONLY mode, nothing will be blocked!"
+        );
+        Ok(Arc::new(DummyBackend))
     }
 }
 
@@ -996,6 +1034,7 @@ struct AppState {
     bans: DashMap<IpAddr, BanEntry>,
     conns: DashMap<(IpAddr, u32), ConnState>,
     backend: Arc<dyn BanBackend>,
+    db: Arc<Db>,
     maxretry: u32,
     findtime: u64,
     bantime: u64,
@@ -1005,6 +1044,7 @@ struct AppState {
 impl AppState {
     fn new(
         backend: Arc<dyn BanBackend>,
+        db: Arc<Db>,
         maxretry: u32,
         findtime: u64,
         bantime: u64,
@@ -1015,6 +1055,7 @@ impl AppState {
             bans: DashMap::new(),
             conns: DashMap::new(),
             backend,
+            db,
             maxretry,
             findtime,
             bantime,
@@ -1088,11 +1129,13 @@ impl AppState {
                 }
             }
             q.push_back(now);
+            self.db.save_failure(ip, now.timestamp());
             q.len() as u32 >= self.maxretry
         };
 
         if should_ban {
             self.failures.remove(&ip);
+            self.db.delete_failures(ip);
             info!(
                 "Ban {} after {} failures within {}s (last: {})",
                 ip, self.maxretry, self.findtime, reason
@@ -1106,6 +1149,7 @@ impl AppState {
                             bantime: self.bantime,
                         },
                     );
+                    self.db.save_ban(ip, now.timestamp(), self.bantime as i64);
                 }
                 Err(e) => error!("Failed to ban {}: {}", ip, e),
             }
@@ -1123,6 +1167,7 @@ impl AppState {
             .collect();
         for ip in expired {
             if self.bans.remove(&ip).is_some() {
+                self.db.delete_ban(ip);
                 match self.backend.unban(ip) {
                     Ok(()) => info!("Unban {} (bantime expired)", ip),
                     Err(e) => error!("Failed to unban {}: {}", ip, e),
@@ -1136,7 +1181,63 @@ impl AppState {
             .retain(|_, q| q.back().map(|t| *t >= cutoff).unwrap_or(false));
         let conn_cutoff = now - chrono::Duration::seconds(300);
         self.conns.retain(|_, c| c.last >= conn_cutoff);
+
+        // Database hygiene: prune rows that fell out of their window
+        self.db.prune_failures(cutoff.timestamp());
+        self.db.prune_bans(now.timestamp());
     }
+}
+
+/// Re-apply persisted state after a restart / reboot:
+///   * every unexpired ban is written back to the firewall
+///   * failure history within `findtime` is restored into memory
+///
+/// Whitelisted addresses are never restored (and cleared from the database).
+fn restore_state(state: &AppState) {
+    let now = Utc::now();
+    state.db.prune_bans(now.timestamp());
+    let (bans, failures) = state.db.load_state(now.timestamp(), state.findtime as i64);
+
+    let mut restored_bans = 0usize;
+    for (ip, banned_at, bantime) in bans {
+        if state.is_whitelisted(&ip) {
+            info!(
+                "{} was banned before the restart but is whitelisted, clearing it",
+                ip
+            );
+            state.db.delete_ban(ip);
+            continue;
+        }
+        let entry = BanEntry {
+            banned_at: Utc.timestamp_opt(banned_at, 0).single().unwrap_or(now),
+            bantime: bantime.max(1) as u64,
+        };
+        if entry.is_expired(now) {
+            state.db.delete_ban(ip);
+            continue;
+        }
+        match state.backend.ban(ip) {
+            Ok(()) => {
+                state.bans.insert(ip, entry);
+                restored_bans += 1;
+            }
+            Err(e) => error!("cannot re-apply ban for {}: {}", ip, e),
+        }
+    }
+
+    let mut restored_failures = 0usize;
+    for (ip, times) in failures {
+        for ts in times {
+            if let Some(dt) = Utc.timestamp_opt(ts, 0).single() {
+                state.failures.entry(ip).or_default().push_back(dt);
+                restored_failures += 1;
+            }
+        }
+    }
+    info!(
+        "restored {} active bans and {} failure records from database {}",
+        restored_bans, restored_failures, DB_PATH
+    );
 }
 
 // ───────────────────────────── log readers ─────────────────────────────
@@ -1280,28 +1381,28 @@ async fn main() -> Result<()> {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
 
-    let cfg = load_config(args.config.as_deref())?;
+    let db = Arc::new(Db::open().context("database initialisation failed")?);
 
-    // ── detection ──
-    let ssh = detect_ssh(&cfg);
-    let source = detect_log_source(&cfg)?;
-    let filters = build_filters(&ssh, cfg.aggressive)?;
+    // ── detection (no configuration file, everything is automatic) ──
+    let ssh = detect_ssh();
+    let source = detect_log_source()?;
+    let filters = build_filters(&ssh, false)?;
     let filter_names: Vec<&str> = filters.iter().map(|f| f.name).collect();
-    let whitelist = build_whitelist(&cfg);
-    let backend = pick_backend(&cfg, &ssh.ports)?;
+    let whitelist = build_whitelist();
+    let backend = pick_backend(&ssh.ports)?;
 
-    info!(
-        "sshd settings ({}): ports={:?} password={} keyboard-interactive={} pubkey={}",
+    info!("sshd settings ({}): ports={:?} password={} keyboard-interactive={} pubkey={}",
         ssh.source, ssh.ports, ssh.password, ssh.kbd_interactive, ssh.pubkey
     );
     info!("log source: {}", source);
     info!("ban backend: {}", backend.name());
+    info!("state database: {}", DB_PATH);
     info!("active filters: {}", filter_names.join(", "));
     info!(
         "policy: {} failures within {}s -> ban for {}s; {} whitelist entries",
-        cfg.maxretry,
-        cfg.findtime,
-        cfg.bantime,
+        MAXRETRY,
+        FINDTIME,
+        BANTIME,
         whitelist.len()
     );
 
@@ -1313,12 +1414,16 @@ async fn main() -> Result<()> {
 
     let state = Arc::new(AppState::new(
         backend,
-        cfg.maxretry,
-        cfg.findtime,
-        cfg.bantime,
+        db,
+        MAXRETRY,
+        FINDTIME,
+        BANTIME,
         whitelist,
     ));
     let detector = Detector::new(filters);
+
+    // ── restore persisted bans / failures after restart or reboot ──
+    restore_state(&state);
 
     // ── log reader task ──
     let (tx, mut rx) = mpsc::channel::<String>(1024);
@@ -1340,7 +1445,7 @@ async fn main() -> Result<()> {
 
     // ── cleanup task ──
     let state_cleanup = Arc::clone(&state);
-    let interval = cfg.cleanup_interval.max(1);
+    let interval = CLEANUP_INTERVAL.max(1);
     tokio::spawn(async move {
         let mut ticker = time::interval(Duration::from_secs(interval));
         loop {
@@ -1373,7 +1478,7 @@ async fn main() -> Result<()> {
     }
 
     state.backend.shutdown();
-    info!("firewall rules removed, bye");
+    info!("firewall rules removed (bans stay in the database and are re-applied on start), bye");
     Ok(())
 }
 
@@ -1398,7 +1503,14 @@ mod tests {
     }
 
     fn state(maxretry: u32) -> AppState {
-        AppState::new(Arc::new(DummyBackend), maxretry, 600, 3600, vec![])
+        AppState::new(
+            Arc::new(DummyBackend),
+            Arc::new(Db::open_memory().unwrap()),
+            maxretry,
+            600,
+            3600,
+            vec![],
+        )
     }
 
     fn feed(st: &AppState, d: &Detector, line: &str) {
@@ -1513,5 +1625,43 @@ mod tests {
         assert!(st.bans.contains_key(&"2.2.2.2".parse::<IpAddr>().unwrap()));
         assert!(st.bans.contains_key(&"2001:db8::1".parse::<IpAddr>().unwrap()));
         assert!(!st.bans.contains_key(&"9.9.9.9".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn bans_survive_restart() {
+        let db = Arc::new(Db::open_memory().unwrap());
+        let d = detector(&ssh(true, true, true), false);
+        let ip: IpAddr = "5.5.5.5".parse().unwrap();
+        let st = AppState::new(Arc::new(DummyBackend), db.clone(), 3, 600, 3600, vec![]);
+        for i in 0..3 {
+            feed(
+                &st,
+                &d,
+                &format!(
+                    "Oct 10 03:00:00 h sshd[{}]: Failed password for root from 5.5.5.5 port 1 ssh2",
+                    40 + i
+                ),
+            );
+        }
+        assert!(st.bans.contains_key(&ip));
+
+        // fresh instance after a "restart": the ban is re-applied from the db
+        let st2 = AppState::new(Arc::new(DummyBackend), db, 3, 600, 3600, vec![]);
+        restore_state(&st2);
+        assert!(st2.bans.contains_key(&ip));
+
+        // ...and a whitelisted IP is cleared instead of restored
+        let st3 = AppState::new(
+            Arc::new(DummyBackend),
+            Arc::new(Db::open_memory().unwrap()),
+            3,
+            600,
+            3600,
+            vec![Cidr::parse("5.5.5.5").unwrap()],
+        );
+        st3.db.save_ban(ip, Utc::now().timestamp(), 3600);
+        restore_state(&st3);
+        assert!(!st3.bans.contains_key(&ip));
+        assert!(st3.db.load_state(Utc::now().timestamp(), 600).0.is_empty());
     }
 }
